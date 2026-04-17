@@ -146,7 +146,7 @@ final class PuzzleLibrary: ObservableObject {
     /// pixel stores `regionId % 256`; for puzzles with more than 256 regions
     /// the caller should still treat this as a debug artifact — the
     /// authoritative region list lives in `metadata.regions`.
-    private static func encodeRegionMap(regionIds: [Int], width: Int, height: Int) -> Data? {
+    nonisolated private static func encodeRegionMap(regionIds: [Int], width: Int, height: Int) -> Data? {
         guard width > 0, height > 0, regionIds.count == width * height else { return nil }
         let colorSpace = CGColorSpaceCreateDeviceGray()
         let bytesPerRow = width
