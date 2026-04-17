@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Minimal token scope — this workflow only needs to read the repo contents.
+permissions:
+  contents: read
+
+# Cancel older in-flight runs on the same branch to keep CI fast.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------
+  # PBNCore: the platform-agnostic paint-by-numbers engine. We run its
+  # XCTest suite on Linux via `swift test` so the core logic is verified
+  # on every push, even without a macOS runner.
+  #
+  # Use the official Swift container directly so we don't depend on the
+  # third-party `swift-actions/setup-swift` action, which has been returning
+  # 404s while trying to fetch toolchains.
+  # --------------------------------------------------------------------
+  core-tests-linux:
+    name: PBNCore tests (Linux)
+    runs-on: ubuntu-latest
+    container: swift:5.9-jammy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build PBNCore
+        run: swift build -c debug
+
+      - name: Run PBNCore tests
+        run: swift test --parallel
+
+  # --------------------------------------------------------------------
+  # iOS app + Share Extension build on a macOS runner. Uses XcodeGen to
+  # generate the Xcode project from project.yml, then `xcodebuild build`
+  # for the iOS Simulator. This verifies that the SwiftUI / UIKit code
+  # compiles and links against PBNCore on Apple platforms.
+  #
+  # `macos-15` is required because modern XcodeGen (2.45+) emits projects
+  # with objectVersion 77, which can only be read by Xcode 16.3+.
+  # --------------------------------------------------------------------
+  ios-build-macos:
+    name: iOS build (macOS)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show selected Xcode
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show available simulators
+        run: xcrun simctl list devices available | head -60
+
+      - name: Build for iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PaintByNumbers.xcodeproj \
+            -scheme PaintByNumbers \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            build
+
+      - name: Run PBNCore tests on macOS
+        run: swift test --parallel
