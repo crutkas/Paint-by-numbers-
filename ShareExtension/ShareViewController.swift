@@ -17,7 +17,7 @@ final class ShareViewController: UIViewController {
             let item = extensionContext?.inputItems.compactMap({ $0 as? NSExtensionItem }).first,
             let attachment = item.attachments?.first
         else {
-            complete()
+            completeOnMain()
             return
         }
 
@@ -27,7 +27,7 @@ final class ShareViewController: UIViewController {
         } else if attachment.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             typeIdentifier = UTType.fileURL.identifier
         } else {
-            complete()
+            completeOnMain()
             return
         }
 
@@ -40,7 +40,7 @@ final class ShareViewController: UIViewController {
                 return nil
             }()
             guard let image, let pngData = image.pngData() else {
-                self.complete()
+                self.completeOnMain()
                 return
             }
             self.persistAndOpen(pngData: pngData)
@@ -51,12 +51,14 @@ final class ShareViewController: UIViewController {
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: "group.com.example.paintbynumbers"
         ) else {
-            complete()
+            completeOnMain()
             return
         }
         let inbox = container.appendingPathComponent("SharedInbox", isDirectory: true)
         try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
 
+        // UUID strings match `ShareImport.isValidToken`'s allowlist, so the
+        // host app will accept this token when it parses the open-URL.
         let token = UUID().uuidString
         let filename = "\(token).png"
         let imageURL = inbox.appendingPathComponent(filename)
@@ -66,7 +68,7 @@ final class ShareViewController: UIViewController {
             let metaURL = inbox.appendingPathComponent("\(token).json")
             try JSONEncoder().encode(payload).write(to: metaURL, options: .atomic)
         } catch {
-            complete()
+            completeOnMain()
             return
         }
 
@@ -89,6 +91,18 @@ final class ShareViewController: UIViewController {
                 return
             }
             responder = r.next
+        }
+    }
+
+    /// Always complete the extension request on the main queue — AppKit/UIKit
+    /// extension lifecycle APIs are not documented as thread-safe.
+    private func completeOnMain() {
+        if Thread.isMainThread {
+            complete()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.complete()
+            }
         }
     }
 

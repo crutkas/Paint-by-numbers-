@@ -31,18 +31,39 @@ final class ShareImportTests: XCTestCase {
     }
 
     func testPayloadCodableRoundTrip() throws {
+        // Use default JSON strategies to match production `JSONEncoder()` /
+        // `JSONDecoder()` used in `ShareViewController` and `PuzzleLibrary`.
         let payload = ShareImportPayload(
             token: "tkn-123",
             filename: "incoming.jpg",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let data = try encoder.encode(payload)
-        let decoded = try decoder.decode(ShareImportPayload.self, from: data)
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(ShareImportPayload.self, from: data)
         XCTAssertEqual(decoded, payload)
+    }
+
+    // MARK: Token validation
+
+    func testIsValidTokenAcceptsUUID() {
+        XCTAssertTrue(ShareImport.isValidToken(UUID().uuidString))
+        XCTAssertTrue(ShareImport.isValidToken("abc-123"))
+        XCTAssertTrue(ShareImport.isValidToken("A1B2C3"))
+    }
+
+    func testIsValidTokenRejectsPathTraversal() {
+        XCTAssertFalse(ShareImport.isValidToken(""))
+        XCTAssertFalse(ShareImport.isValidToken("../etc/passwd"))
+        XCTAssertFalse(ShareImport.isValidToken("foo/bar"))
+        XCTAssertFalse(ShareImport.isValidToken("foo\\bar"))
+        XCTAssertFalse(ShareImport.isValidToken("foo bar"))
+        XCTAssertFalse(ShareImport.isValidToken("foo.bar"))
+        XCTAssertFalse(ShareImport.isValidToken(String(repeating: "a", count: 65)))
+    }
+
+    func testTokenFromURLRejectsPathTraversalToken() {
+        let url = URL(string: "paintbynumbers://import?token=..%2Fevil")!
+        XCTAssertNil(ShareImport.token(from: url))
     }
 }
 

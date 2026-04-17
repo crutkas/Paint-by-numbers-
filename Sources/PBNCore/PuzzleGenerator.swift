@@ -128,17 +128,18 @@ public enum PuzzleGenerator {
     }
 
     /// Pick a working size that preserves aspect ratio and whose long edge is
-    /// `difficulty.workingLongEdge`.
+    /// `difficulty.workingLongEdge`. The short edge is rounded rather than
+    /// floored so near-square images don't lose a pixel of aspect ratio.
     public static func workingSize(forImage image: RGBImage, difficulty: Difficulty) -> (Int, Int) {
         guard image.width > 0, image.height > 0 else { return (0, 0) }
         let target = difficulty.workingLongEdge
         if image.width >= image.height {
             let w = min(image.width, target)
-            let h = max(1, Int((Double(image.height) / Double(image.width)) * Double(w).rounded()))
+            let h = max(1, Int(((Double(image.height) / Double(image.width)) * Double(w)).rounded()))
             return (w, h)
         } else {
             let h = min(image.height, target)
-            let w = max(1, Int((Double(image.width) / Double(image.height)) * Double(h).rounded()))
+            let w = max(1, Int(((Double(image.width) / Double(image.height)) * Double(h)).rounded()))
             return (w, h)
         }
     }

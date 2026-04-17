@@ -38,9 +38,20 @@ public struct RGBImage: Equatable, Sendable {
     /// Returns a new image scaled to `targetWidth` x `targetHeight` using
     /// nearest-neighbor sampling. Suitable for downscaling the working image
     /// before quantization; the final rendered puzzle uses the original size.
+    ///
+    /// If the source image is empty (either dimension is zero) an empty image
+    /// of the requested dimensions is returned — we can't sample from zero
+    /// pixels, so no meaningful content can be produced.
     public func nearestNeighborScaled(toWidth targetWidth: Int, height targetHeight: Int) -> RGBImage {
         precondition(targetWidth > 0 && targetHeight > 0, "target dimensions must be positive")
         if targetWidth == width && targetHeight == height { return self }
+        if width == 0 || height == 0 || pixels.isEmpty {
+            return RGBImage(
+                width: targetWidth,
+                height: targetHeight,
+                pixels: Array(repeating: RGBColor(r: 0, g: 0, b: 0), count: targetWidth * targetHeight)
+            )
+        }
         var out = [RGBColor]()
         out.reserveCapacity(targetWidth * targetHeight)
         for y in 0..<targetHeight {

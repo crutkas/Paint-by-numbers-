@@ -70,6 +70,16 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertEqual(h, 32)
     }
 
+    func testWorkingSizeRoundsRatherThanTruncates() {
+        // 300x100 at target 128 -> expected h = round(100/300 * 128) = 43,
+        // not 42 (which a `.rounded()`-on-wrong-operand truncation bug would
+        // produce). This regression-tests the `workingSize` rounding fix.
+        let img = RGBImage(width: 300, height: 100, fill: RGBColor(r: 0, g: 0, b: 0))
+        let (w, h) = PuzzleGenerator.workingSize(forImage: img, difficulty: .medium)
+        XCTAssertEqual(w, 128)
+        XCTAssertEqual(h, 43)
+    }
+
     func testRegionsColorIndicesAreValid() {
         let img = twoBandImage()
         let puzzle = PuzzleGenerator.generate(image: img, difficulty: .medium)

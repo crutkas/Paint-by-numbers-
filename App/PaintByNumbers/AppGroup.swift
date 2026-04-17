@@ -5,20 +5,27 @@ import Foundation
 public enum AppGroup {
     public static let identifier = "group.com.example.paintbynumbers"
 
-    /// Shared container URL (nil if App Group entitlement is missing; in that
-    /// case we fall back to the app's own Application Support).
+    /// Shared container URL. Falls back to Application Support (or, if even
+    /// that fails, the temporary directory) so debug builds without App Group
+    /// entitlements still work instead of crashing at launch.
     public static var containerURL: URL {
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
             return url
         }
-        // Fallback so debug builds without entitlements still work.
-        let appSupport = try! FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        return appSupport
+        do {
+            return try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+        } catch {
+            NSLog("AppGroup: Failed to resolve Application Support directory: \(error)")
+            let fallback = FileManager.default.temporaryDirectory
+                .appendingPathComponent("PaintByNumbers", isDirectory: true)
+            try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+            return fallback
+        }
     }
 
     /// Folder where the Share Extension drops incoming images.

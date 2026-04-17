@@ -37,14 +37,32 @@ public enum ShareImport {
     }
 
     /// Parse an incoming URL and return the embedded token, if any.
+    ///
+    /// The token is validated to match a strict `[A-Za-z0-9-]{1,64}` shape
+    /// (compatible with `UUID().uuidString`). Because *any* app on the
+    /// device can invoke our custom URL scheme, a malicious caller could
+    /// otherwise smuggle `../` path separators into the token that the host
+    /// app later uses to build a filename inside the App Group container.
+    /// Rejecting anything outside this allowlist prevents path traversal.
     public static func token(from url: URL) -> String? {
         guard url.scheme == urlScheme else { return nil }
         guard url.host == "import" else { return nil }
         guard
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
-            !token.isEmpty
+            let candidate = components.queryItems?.first(where: { $0.name == "token" })?.value,
+            isValidToken(candidate)
         else { return nil }
-        return token
+        return candidate
+    }
+
+    /// Returns `true` iff `token` is a non-empty, short, filename-safe string.
+    /// Exposed so app-layer code and the Share Extension can apply the same
+    /// rule when minting or consuming tokens.
+    public static func isValidToken(_ token: String) -> Bool {
+        guard !token.isEmpty, token.count <= 64 else { return false }
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+        )
+        return token.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }

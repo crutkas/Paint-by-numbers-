@@ -41,4 +41,15 @@ final class RGBImageTests: XCTestCase {
         let uniqueColors = Set(scaled.pixels)
         XCTAssertEqual(uniqueColors, Set(pixels))
     }
+
+    func testScalingEmptySourceReturnsEmptyFill() {
+        // Zero-pixel source. Must not crash (previously it indexed `pixels[-1]`).
+        let empty = RGBImage(width: 0, height: 0, pixels: [])
+        let scaled = empty.nearestNeighborScaled(toWidth: 3, height: 2)
+        XCTAssertEqual(scaled.width, 3)
+        XCTAssertEqual(scaled.height, 2)
+        XCTAssertEqual(scaled.pixels.count, 6)
+        // Uniform fill when there's nothing to sample from.
+        XCTAssertEqual(Set(scaled.pixels).count, 1)
+    }
 }
