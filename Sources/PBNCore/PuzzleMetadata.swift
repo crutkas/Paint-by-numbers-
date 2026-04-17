@@ -75,13 +75,6 @@ public struct PuzzleProgress: Codable, Equatable, Sendable {
         guard totalRegions > 0 else { return 0 }
         return min(1.0, Double(filledRegionIds.count) / Double(totalRegions))
     }
-
-    public var isComplete: Bool {
-        // `isComplete` is evaluated against the puzzle's region count by
-        // `PuzzleProgressCalculator`; convenience bool here is based on an
-        // externally-tracked count held by the caller.
-        return false
-    }
 }
 
 /// Utility helpers for progress calculation. Separated out so the logic is
