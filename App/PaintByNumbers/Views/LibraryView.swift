@@ -12,32 +12,38 @@ struct LibraryView: View {
     @State private var showCamera = false
     @State private var showSettings = false
 
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 20)]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                importButtons
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if library.puzzles.isEmpty {
+                        emptyState
+                    } else {
+                        Text("My Pictures")
+                            .font(.system(.title2, design: .rounded, weight: .bold))
+                            .padding(.horizontal)
 
-                if library.puzzles.isEmpty {
-                    emptyState
-                } else {
-                    Text("My Pictures")
-                        .font(.system(.title2, design: .rounded, weight: .bold))
-                        .padding(.horizontal)
-
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(library.puzzles, id: \.id) { puzzle in
-                            NavigationLink(value: puzzle.id) {
-                                PuzzleTile(puzzle: puzzle)
+                        LazyVGrid(columns: columns, spacing: 20) {
+                            ForEach(library.puzzles, id: \.id) { puzzle in
+                                NavigationLink(value: puzzle.id) {
+                                    PuzzleTile(puzzle: puzzle)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
                 }
+                .padding(.vertical)
             }
-            .padding(.vertical)
+
+            importButtons
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+                .background(.ultraThinMaterial)
         }
         .navigationTitle("Paint by Numbers")
         .toolbar {
@@ -86,41 +92,40 @@ struct LibraryView: View {
     }
 
     private var importButtons: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                PhotosPicker(
-                    selection: $photosPickerItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    BigActionTile(
-                        title: "Photos",
-                        systemImage: "photo.on.rectangle.angled",
-                        tint: .purple
-                    )
-                }
-
-                Button {
-                    showCamera = true
-                } label: {
-                    BigActionTile(
-                        title: "Camera",
-                        systemImage: "camera.fill",
-                        tint: .pink
-                    )
-                }
+        HStack(spacing: 28) {
+            PhotosPicker(
+                selection: $photosPickerItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                CircleActionButton(
+                    title: "Photos",
+                    systemImage: "photo.on.rectangle.angled",
+                    tint: .purple
+                )
             }
+
+            Button {
+                showCamera = true
+            } label: {
+                CircleActionButton(
+                    title: "Camera",
+                    systemImage: "camera.fill",
+                    tint: .pink
+                )
+            }
+
             Button {
                 showFileImporter = true
             } label: {
-                BigActionTile(
+                CircleActionButton(
                     title: "Files",
                     systemImage: "folder.fill",
                     tint: .teal
                 )
             }
         }
-        .padding(.horizontal)
+        .frame(maxWidth: .infinity)
     }
 
     private var emptyState: some View {
@@ -137,22 +142,25 @@ struct LibraryView: View {
     }
 }
 
-private struct BigActionTile: View {
+private struct CircleActionButton: View {
     let title: String
     let systemImage: String
     let tint: Color
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 40))
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(tint.gradient, in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                .shadow(color: tint.opacity(0.35), radius: 6, y: 3)
             Text(title)
-                .font(.system(.title3, design: .rounded, weight: .bold))
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(.primary)
         }
-        .frame(maxWidth: .infinity, minHeight: 110)
-        .foregroundStyle(.white)
-        .background(tint.gradient, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("New puzzle from \(title)")
     }
@@ -168,6 +176,7 @@ private struct PuzzleTile: View {
                 thumbnail
                     .frame(height: 140)
                     .frame(maxWidth: .infinity)
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
