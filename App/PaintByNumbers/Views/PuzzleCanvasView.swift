@@ -73,6 +73,14 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
     /// so rotations / size changes after that don't keep snapping the user
     /// back to the fit scale.
     private var hasAppliedInitialZoom = false
+    /// Tracks whether the canvas is currently at the fit-to-screen zoom. We
+    /// re-apply the fit zoom on resize only while this is true, so a user who
+    /// has pinched in doesn't get yanked back to fit on rotation, but a user
+    /// who hasn't zoomed still sees the whole puzzle after the bounds change.
+    private var isFitToScreen = true
+    /// Last bounds size we laid out at. Used to detect real size changes
+    /// (rotation, split view, keyboard, etc.) vs. no-op layout passes.
+    private var lastLaidOutSize: CGSize = .zero
 
     func configure(
         with puzzle: PuzzleMetadata,
@@ -122,6 +130,10 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         // Re-rasterize the canvas at the new zoom scale so numbers and region
         // outlines stay crisp instead of being scaled-up bitmap pixels.
         updateImageContentScale()
+        // If the user ended the pinch back at (or below) the fit scale, treat
+        // the canvas as fitted again so future resizes keep the whole puzzle
+        // visible. Any zoom in past fit flips this off.
+        isFitToScreen = scale <= minimumZoomScale + 0.001
     }
 
     override func layoutSubviews() {
@@ -130,8 +142,22 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         if !hasAppliedInitialZoom, bounds.width > 0, bounds.height > 0, canvasSize != .zero {
             zoomScale = minimumZoomScale
             hasAppliedInitialZoom = true
+            isFitToScreen = true
+            updateImageContentScale()
+        } else if hasAppliedInitialZoom,
+                  isFitToScreen,
+                  bounds.size != lastLaidOutSize,
+                  bounds.width > 0,
+                  bounds.height > 0 {
+            // Bounds changed (rotation, split view, etc.) and the user was
+            // still at fit-to-screen — re-apply the fit zoom so the canvas
+            // doesn't overflow the new bounds (previously `zoomScale` only
+            // clamped *up* to the new minimum, so shrinking the height left
+            // the canvas taller than the visible area).
+            zoomScale = minimumZoomScale
             updateImageContentScale()
         }
+        lastLaidOutSize = bounds.size
         centerImageView()
     }
 
