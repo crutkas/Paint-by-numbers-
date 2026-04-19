@@ -43,55 +43,54 @@ struct NewPuzzleView: View {
     }
 
     var body: some View {
-        ZStack {
-            // The source image itself is the backdrop, softly blurred and
-            // dimmed so the controls on top stay readable. This gives each
-            // puzzle setup page its own distinct feel.
-            Image(uiImage: sourceImage)
-                .resizable()
-                .scaledToFill()
-                .blur(radius: 30)
-                .overlay(Color.black.opacity(0.35))
-                .ignoresSafeArea()
-
-            // Everything fits on one screen: preview expands to fill the
-            // available space above the controls, controls are compact at
-            // the bottom. No outer ScrollView so the user never has to
-            // scroll to find the Paint button.
-            VStack(spacing: 16) {
-                preview
-                    .aspectRatio(sourceAspect, contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(.white.opacity(0.35), lineWidth: 1)
-                    )
-
-                controlPanel
-            }
+        // Single section: the pixelated preview fills the whole screen as
+        // the bottom layer, and the options panel floats on top anchored to
+        // the bottom of the screen. Using `.safeAreaInset(edge: .bottom)`
+        // is SwiftUI's equivalent of a WinUI NavigationView pane pinned to
+        // one edge — it docks the control panel along the bottom while the
+        // image layer stretches edge-to-edge behind it. Nothing scrolls;
+        // the whole setup fits on one screen.
+        preview
+            .aspectRatio(sourceAspect, contentMode: .fit)
             .padding(.horizontal)
-            .padding(.vertical, 12)
-        }
-        .navigationTitle("New Puzzle")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .task {
-            if baseRGB == nil {
-                baseRGB = sourceImage.rgbImage()
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                // Softly blurred copy of the source image fills any space
+                // left around the aspect-fit preview (letterbox bars) so
+                // the screen never has raw black bars.
+                Image(uiImage: sourceImage)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 30)
+                    .overlay(Color.black.opacity(0.35))
+                    .ignoresSafeArea()
             }
-        }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                controlPanel
+                    .padding(.horizontal)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+                    .background(.ultraThinMaterial)
+            }
+            .navigationTitle("New Puzzle")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .task {
+                if baseRGB == nil {
+                    baseRGB = sourceImage.rgbImage()
+                }
+            }
     }
 
-    /// Compact translucent panel that holds the name, grid slider, and the
-    /// Paint button — sits on top of the blurred image background.
+    /// Compact panel that holds the name, grid slider, and the Paint
+    /// button — docked to the bottom of the screen over the image layer.
     private var controlPanel: some View {
         VStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Name")
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 TextField("My Puzzle", text: $title)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .rounded))
@@ -104,11 +103,10 @@ struct NewPuzzleView: View {
                     Spacer()
                     Text("\(previewCells.width) × \(previewCells.height)")
                         .font(.system(.subheadline, design: .rounded).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.85))
+                        .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 Slider(value: $gridSize, in: minGrid...maxGrid, step: 1)
-                    .tint(.white)
                     .accessibilityHint("Drag to change how many squares are in the grid.")
             }
 
@@ -127,8 +125,6 @@ struct NewPuzzleView: View {
             .controlSize(.large)
             .disabled(isGenerating)
         }
-        .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     // MARK: - Preview
