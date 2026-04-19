@@ -10,15 +10,25 @@ struct PaletteStripView: View {
     @Binding var selectedColorIndex: Int
     let axis: Axis
 
+    @AppStorage("pbn.removeDoneColors") private var removeDoneColors = false
+
     var body: some View {
         ScrollView(axis == .horizontal ? .horizontal : .vertical, showsIndicators: false) {
             layout {
                 ForEach(puzzle.palette.colors.indices, id: \.self) { index in
-                    chip(for: index)
+                    if !(removeDoneColors && isDone(index)) {
+                        chip(for: index)
+                    }
                 }
             }
             .padding(12)
         }
+    }
+
+    private func isDone(_ index: Int) -> Bool {
+        PuzzleProgressCalculator.remainingRegionIds(
+            forColor: index, puzzle: puzzle, progress: progress
+        ).isEmpty
     }
 
     @ViewBuilder
