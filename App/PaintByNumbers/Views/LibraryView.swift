@@ -2,9 +2,10 @@ import SwiftUI
 import PhotosUI
 import PBNCore
 
-/// Library / home screen: shows saved puzzles and the bottom-right
-/// floating action button that expands into the three import options.
-/// Designed with big, rounded, high-contrast UI for 6-10 year-olds.
+/// Library / home screen: shows saved puzzles with the three import
+/// options (Photos / Camera / Files) pinned to the bottom-right as a
+/// floating top-layer overlay. Designed with big, rounded, high-contrast
+/// UI for 6-10 year-olds.
 struct LibraryView: View {
     @EnvironmentObject var library: PuzzleLibrary
 
@@ -12,10 +13,6 @@ struct LibraryView: View {
     @State private var showFileImporter = false
     @State private var showCamera = false
     @State private var showSettings = false
-    /// Whether the bottom-right "+" FAB is expanded to show its import
-    /// sub-actions. iOS-style: tap the primary button and the secondary
-    /// options fan out above it.
-    @State private var isFABExpanded = false
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 20)]
 
@@ -41,16 +38,19 @@ struct LibraryView: View {
                 }
             }
             .padding(.vertical)
-            // Leave room at the bottom so the FAB doesn't cover the last
-            // row of tiles when scrolled to the end.
-            .padding(.bottom, 96)
+            // Leave room at the bottom so the floating import buttons
+            // don't cover the last row of tiles when scrolled to the end.
+            // The stack is ~3 × 48pt buttons with spacing, so reserve a
+            // taller inset than a single FAB would need.
+            .padding(.bottom, 220)
         }
-        // iOS-style floating action button pinned to the bottom-right. The
-        // primary "+" expands into Photos / Camera / Files sub-actions so
-        // the home page stays clean while still giving one-tap access to
-        // every import route.
+        // Three import options pinned to the bottom-right as a floating
+        // top layer, stacked vertically. Mirrors the new-puzzle page's
+        // control panel style (all options visible at once) while keeping
+        // the home screen clean, since the buttons overlay the grid
+        // instead of taking up their own row.
         .overlay(alignment: .bottomTrailing) {
-            importFAB
+            importButtons
                 .padding(.trailing, 20)
                 .padding(.bottom, 20)
         }
@@ -100,78 +100,43 @@ struct LibraryView: View {
         }
     }
 
-    /// Bottom-right floating action button that expands into the three
-    /// import options. Sub-FABs stack above the primary button and each
-    /// one animates in with a slight delay for a playful fan-out feel.
-    private var importFAB: some View {
+    /// Bottom-right floating stack of the three import options. Always
+    /// shown at the same time (no "+" expand/collapse) so each choice is
+    /// one tap away, while the overlay positioning keeps them layered on
+    /// top of the puzzle grid rather than pushing content down.
+    private var importButtons: some View {
         VStack(alignment: .trailing, spacing: 14) {
-            if isFABExpanded {
-                FABSubAction(
-                    title: "Files",
-                    systemImage: "folder.fill",
-                    tint: .teal
-                ) {
-                    collapseFAB()
-                    showFileImporter = true
-                }
-                .transition(fabTransition)
-
-                FABSubAction(
-                    title: "Camera",
-                    systemImage: "camera.fill",
-                    tint: .pink
-                ) {
-                    collapseFAB()
-                    showCamera = true
-                }
-                .transition(fabTransition)
-
-                // Photos uses a PhotosPicker, which must stay in the view
-                // tree for its binding to drive the presentation. Wrap
-                // the FAB sub-action as its label so it still feels like
-                // the other two options from the user's perspective.
-                PhotosPicker(
-                    selection: $photosPickerItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    FABSubActionLabel(
-                        title: "Photos",
-                        systemImage: "photo.on.rectangle.angled",
-                        tint: .purple
-                    )
-                }
-                .simultaneousGesture(TapGesture().onEnded { collapseFAB() })
-                .transition(fabTransition)
+            FABSubAction(
+                title: "Files",
+                systemImage: "folder.fill",
+                tint: .teal
+            ) {
+                showFileImporter = true
             }
 
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                    isFABExpanded.toggle()
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(Color.accentColor.gradient, in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                    // Rotate the plus into an "×" when expanded so the
-                    // same button obviously doubles as "close menu".
-                    .rotationEffect(.degrees(isFABExpanded ? 45 : 0))
+            FABSubAction(
+                title: "Camera",
+                systemImage: "camera.fill",
+                tint: .pink
+            ) {
+                showCamera = true
             }
-            .accessibilityLabel(isFABExpanded ? "Close new puzzle menu" : "New puzzle")
-        }
-    }
 
-    private var fabTransition: AnyTransition {
-        .move(edge: .bottom).combined(with: .opacity)
-    }
-
-    private func collapseFAB() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-            isFABExpanded = false
+            // Photos uses a PhotosPicker, which must stay in the view
+            // tree for its binding to drive the presentation. Wrap the
+            // FAB sub-action as its label so it matches the other two
+            // options visually.
+            PhotosPicker(
+                selection: $photosPickerItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                FABSubActionLabel(
+                    title: "Photos",
+                    systemImage: "photo.on.rectangle.angled",
+                    tint: .purple
+                )
+            }
         }
     }
 
