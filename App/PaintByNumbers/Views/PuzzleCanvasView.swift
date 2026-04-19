@@ -242,6 +242,25 @@ final class PuzzleImageView: UIView {
         let scaleX = bounds.width / w
         let scaleY = bounds.height / h
 
+        // Pick a single font size for every numbered cell so the grid reads
+        // like graph paper instead of a mix of giant and tiny digits. The
+        // size is driven by the puzzle's nominal cell size (in working
+        // pixels) — not by each region's individual rect, which varies at
+        // the image edges — and clamped to a comfortable range.
+        let baseCellPixels: CGFloat = {
+            if case .squareGrid(let cs) = puzzle.strategy {
+                return CGFloat(max(1, cs))
+            }
+            return 1
+        }()
+        let cellPoints = baseCellPixels * scaleX
+        let fontSize = max(8, min(28, cellPoints * 0.35))
+        let numberFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let numberAttrs: [NSAttributedString.Key: Any] = [
+            .font: numberFont,
+            .foregroundColor: UIColor.label
+        ]
+
         // Draw each region's bounding box: filled if completed, otherwise with
         // its number centered. A production build would replace this with the
         // vectorized outline paths generated during puzzle creation.
@@ -270,17 +289,15 @@ final class PuzzleImageView: UIView {
                 ctx.stroke(rect)
 
                 let number = "\(region.colorIndex + 1)"
-                let font = UIFont.systemFont(ofSize: max(8, min(rect.height, rect.width) * 0.6), weight: .semibold)
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: font,
-                    .foregroundColor: UIColor.label
-                ]
-                let size = (number as NSString).size(withAttributes: attrs)
+                let size = (number as NSString).size(withAttributes: numberAttrs)
+                // Skip the label if the cell is too small to fit it — keeps
+                // a fine grid legible instead of a wall of overlapping text.
+                guard size.width <= rect.width && size.height <= rect.height else { continue }
                 let origin = CGPoint(
                     x: rect.midX - size.width / 2,
                     y: rect.midY - size.height / 2
                 )
-                (number as NSString).draw(at: origin, withAttributes: attrs)
+                (number as NSString).draw(at: origin, withAttributes: numberAttrs)
             }
         }
     }
