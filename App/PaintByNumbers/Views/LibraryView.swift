@@ -14,7 +14,11 @@ struct LibraryView: View {
     @State private var showCamera = false
     @State private var showSettings = false
 
-    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 20)]
+    // 110pt minimum follows the iOS photo-grid convention (roughly three
+    // tiles per row on a portrait iPhone) while keeping tap targets large
+    // enough for younger kids. Paired with the 3:4 thumbnail aspect ratio,
+    // tiles end up ~110×147pt instead of the previous ~150×200pt.
+    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 16)]
 
     var body: some View {
         ScrollView {
@@ -26,7 +30,7 @@ struct LibraryView: View {
                         .font(.system(.title2, design: .rounded, weight: .bold))
                         .padding(.horizontal)
 
-                    LazyVGrid(columns: columns, spacing: 20) {
+                    LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(library.puzzles, id: \.id) { puzzle in
                             NavigationLink(value: puzzle.id) {
                                 PuzzleTile(puzzle: puzzle)
@@ -223,15 +227,15 @@ private struct PuzzleTile: View {
                     )
 
                 Text("\(Int(completion * 100))%")
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .font(.system(.caption2, design: .rounded, weight: .bold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(.ultraThinMaterial, in: Capsule())
-                    .padding(6)
+                    .padding(5)
             }
 
             Text(puzzle.title)
-                .font(.system(.headline, design: .rounded))
+                .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 .lineLimit(1)
         }
         .contextMenu {
