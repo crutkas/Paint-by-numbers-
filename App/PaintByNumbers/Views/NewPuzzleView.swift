@@ -10,11 +10,11 @@ import PBNCore
 /// updates as the user drags the grid slider.
 struct NewPuzzleView: View {
     let sourceImage: UIImage
+    @Binding var path: NavigationPath
 
     @EnvironmentObject var library: PuzzleLibrary
-    @Environment(\.dismiss) private var dismiss
 
-    @State private var title = "My Puzzle"
+    @State private var title: String = NewPuzzleView.defaultTitle()
     @State private var gridSize: Double = 24
     @State private var isGenerating = false
     /// Cached RGB representation of the source image so the live preview
@@ -32,68 +32,103 @@ struct NewPuzzleView: View {
     private let workingLongEdge: Int = Difficulty.medium.workingLongEdge
     private let paletteDifficulty: Difficulty = .medium
 
+    /// Default puzzle name based on today's date so ad-hoc test imports are
+    /// easy to tell apart in the library ("Apr 19, 2026" instead of "New
+    /// Puzzle", "New Puzzle", "New Puzzle", …).
+    private static func defaultTitle(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
+        ZStack {
+            // The source image itself is the backdrop, softly blurred and
+            // dimmed so the controls on top stay readable. This gives each
+            // puzzle setup page its own distinct feel.
+            Image(uiImage: sourceImage)
+                .resizable()
+                .scaledToFill()
+                .blur(radius: 30)
+                .overlay(Color.black.opacity(0.35))
+                .ignoresSafeArea()
+
+            // Everything fits on one screen: preview expands to fill the
+            // available space above the controls, controls are compact at
+            // the bottom. No outer ScrollView so the user never has to
+            // scroll to find the Paint button.
+            VStack(spacing: 16) {
                 preview
                     .aspectRatio(sourceAspect, contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .background(Color(.secondarySystemBackground))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(.secondary.opacity(0.25), lineWidth: 1)
+                            .strokeBorder(.white.opacity(0.35), lineWidth: 1)
                     )
-                    .padding(.horizontal)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Name")
-                        .font(.system(.headline, design: .rounded))
-                    TextField("My Puzzle", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.title3, design: .rounded))
-                }
-                .padding(.horizontal)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Grid size")
-                            .font(.system(.headline, design: .rounded))
-                        Spacer()
-                        Text("\(previewCells.width) × \(previewCells.height) squares")
-                            .font(.system(.subheadline, design: .rounded).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $gridSize, in: minGrid...maxGrid, step: 1)
-                        .accessibilityHint("Drag to change how many squares are in the grid.")
-                }
-                .padding(.horizontal)
-
-                Button {
-                    Task { await generate() }
-                } label: {
-                    HStack {
-                        if isGenerating { ProgressView() }
-                        Text(isGenerating ? "Making puzzle…" : "Start painting!")
-                            .font(.system(.title3, design: .rounded, weight: .bold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(isGenerating)
-                .padding(.horizontal)
+                controlPanel
             }
-            .padding(.vertical)
+            .padding(.horizontal)
+            .padding(.vertical, 12)
         }
         .navigationTitle("New Puzzle")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task {
             if baseRGB == nil {
                 baseRGB = sourceImage.rgbImage()
             }
         }
+    }
+
+    /// Compact translucent panel that holds the name, grid slider, and the
+    /// Paint button — sits on top of the blurred image background.
+    private var controlPanel: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.white)
+                TextField("My Puzzle", text: $title)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .rounded))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Grid size")
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    Spacer()
+                    Text("\(previewCells.width) × \(previewCells.height)")
+                        .font(.system(.subheadline, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .foregroundStyle(.white)
+                Slider(value: $gridSize, in: minGrid...maxGrid, step: 1)
+                    .tint(.white)
+                    .accessibilityHint("Drag to change how many squares are in the grid.")
+            }
+
+            Button {
+                Task { await generate() }
+            } label: {
+                HStack {
+                    if isGenerating { ProgressView().tint(.white) }
+                    Text(isGenerating ? "Making puzzle…" : "Paint!")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(isGenerating)
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     // MARK: - Preview
@@ -198,13 +233,19 @@ struct NewPuzzleView: View {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let meta = await library.createPuzzle(
             fromImage: sourceImage,
-            title: trimmed.isEmpty ? "My Puzzle" : trimmed,
+            title: trimmed.isEmpty ? NewPuzzleView.defaultTitle() : trimmed,
             difficulty: paletteDifficulty,
             strategy: strategy
         )
-        if meta != nil {
+        if let meta {
             library.pendingImportImage = nil
-            dismiss()
+            // Replace ourselves in the nav stack with the new puzzle's play
+            // view, so tapping Paint lands directly on the painting canvas
+            // instead of bouncing back to the library.
+            if !path.isEmpty {
+                path.removeLast()
+            }
+            path.append(meta.id)
         }
     }
 }

@@ -108,14 +108,42 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         centerImageView()
     }
 
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+        // Re-rasterize the canvas at the new zoom scale so numbers and region
+        // outlines stay crisp instead of being scaled-up bitmap pixels.
+        updateImageContentScale()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         updateMinimumZoomScaleForSize(bounds.size)
         if !hasAppliedInitialZoom, bounds.width > 0, bounds.height > 0, canvasSize != .zero {
             zoomScale = minimumZoomScale
             hasAppliedInitialZoom = true
+            updateImageContentScale()
         }
         centerImageView()
+    }
+
+    /// Sets the canvas's `contentScaleFactor` to `screenScale * zoomScale` so
+    /// `draw(_:)` produces a bitmap dense enough that numbers stay sharp at
+    /// the current zoom level. Without this, UIKit just up-samples the
+    /// existing (1x-rasterized) bitmap and the text looks blurry.
+    private func updateImageContentScale() {
+        let screenScale = (window?.screen.scale) ?? UIScreen.main.scale
+        // Clamp to ≥1 so zooming out (fit-to-screen, which can be < 1 for
+        // large puzzles) still rasterizes at the native screen density
+        // rather than an even coarser one.
+        let desired = screenScale * max(zoomScale, 1)
+        // 0.01 is well below "one pixel" at any realistic device scale, so
+        // it filters out the continuous micro-adjustments we'd otherwise
+        // get from bounce/settle callbacks while still catching any real
+        // zoom change.
+        let capped = min(desired, screenScale * 4)
+        if abs(imageView.contentScaleFactor - capped) > 0.01 {
+            imageView.contentScaleFactor = capped
+            imageView.setNeedsDisplay()
+        }
     }
 
     /// Picks a `minimumZoomScale` that lets the whole canvas fit inside the

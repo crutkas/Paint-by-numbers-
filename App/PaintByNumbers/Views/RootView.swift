@@ -17,7 +17,7 @@ struct RootView: View {
                     }
                 }
                 .navigationDestination(for: PendingImageWrapper.self) { wrapper in
-                    NewPuzzleView(sourceImage: wrapper.image)
+                    NewPuzzleView(sourceImage: wrapper.image, path: $path)
                         .environmentObject(library)
                 }
         }
