@@ -19,6 +19,12 @@ struct SettingsView: View {
                 Section("Accessibility") {
                     Toggle("Big numbers on color chips", isOn: $colorblindNumbers)
                 }
+                Section("Open-source") {
+                    Link("View on GitHub",
+                         destination: URL(string: "https://github.com/crutkas/Paint-by-numbers-")!)
+                    Text("By Clint Rutkas")
+                        .foregroundStyle(.secondary)
+                }
                 Section {
                     Text("Made for ages 6–10. All processing happens on your device.")
                         .font(.footnote)
