@@ -209,8 +209,12 @@ private struct PuzzleTile: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
                 thumbnail
-                    .frame(height: 140)
                     .frame(maxWidth: .infinity)
+                    // Lock every tile thumbnail to a 3:4 portrait aspect
+                    // ratio so very wide source photos get cropped to the
+                    // tile instead of bleeding out and overlapping the
+                    // adjacent grid cell.
+                    .aspectRatio(3.0 / 4.0, contentMode: .fill)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(

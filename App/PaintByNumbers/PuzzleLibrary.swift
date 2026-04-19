@@ -175,6 +175,10 @@ final class PuzzleLibrary: ObservableObject {
 
     func save(progress: PuzzleProgress) {
         try? store.saveProgress(progress)
+        // Notify observers (e.g. library tiles showing completion %) so
+        // they re-render with the latest progress when the player returns
+        // to the home screen after painting.
+        objectWillChange.send()
     }
 
     func deletePuzzle(_ id: UUID) {

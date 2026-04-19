@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("pbn.sound") private var soundOn = true
     @AppStorage("pbn.haptics") private var hapticsOn = true
     @AppStorage("pbn.colorblindNumbers") private var colorblindNumbers = false
+    @AppStorage("pbn.showColorBlocks") private var showColorBlocks = false
+    @AppStorage("pbn.removeDoneColors") private var removeDoneColors = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -15,6 +17,10 @@ struct SettingsView: View {
                 Section("Fun stuff") {
                     Toggle("Sound effects", isOn: $soundOn)
                     Toggle("Haptics", isOn: $hapticsOn)
+                }
+                Section("Playing") {
+                    Toggle("See color blocks", isOn: $showColorBlocks)
+                    Toggle("Color is removed when done", isOn: $removeDoneColors)
                 }
                 Section("Accessibility") {
                     Toggle("Big numbers on color chips", isOn: $colorblindNumbers)

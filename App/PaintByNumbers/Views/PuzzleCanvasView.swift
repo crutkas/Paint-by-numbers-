@@ -11,6 +11,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
     @Binding var progress: PuzzleProgress
     @Binding var selectedColorIndex: Int
 
+    @AppStorage("pbn.showColorBlocks") private var showColorBlocks = false
+
     func makeCoordinator() -> Coordinator {
         Coordinator(puzzle: puzzle)
     }
@@ -25,7 +27,11 @@ struct PuzzleCanvasView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PuzzleScrollView, context: Context) {
-        uiView.update(progress: progress, puzzle: puzzle)
+        uiView.update(
+            progress: progress,
+            puzzle: puzzle,
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+        )
     }
 
     private func handleTap(regionId: Int, in coordinator: Coordinator, view: PuzzleScrollView) {
@@ -40,7 +46,11 @@ struct PuzzleCanvasView: UIViewRepresentable {
         guard !progress.filledRegionIds.contains(regionId) else { return }
         progress.filledRegionIds.insert(regionId)
         progress.lastEditedAt = Date()
-        view.redraw(progress: progress, puzzle: puzzle)
+        view.redraw(
+            progress: progress,
+            puzzle: puzzle,
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+        )
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
@@ -94,12 +104,12 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata) {
-        imageView.update(progress: progress, puzzle: puzzle)
+    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
+        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
     }
 
-    func redraw(progress: PuzzleProgress, puzzle: PuzzleMetadata) {
-        imageView.update(progress: progress, puzzle: puzzle)
+    func redraw(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
+        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
@@ -187,6 +197,9 @@ final class PuzzleImageView: UIView {
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
+    /// Color index whose unfilled regions should be tinted a very light grey
+    /// as a hint to the player. `nil` disables the hint.
+    private var highlightedColorIndex: Int?
     private var lastSwipedRegionId: Int?
     /// Most recent pan sample location (in this view's coordinate space). We
     /// keep it so a fast swipe can be interpolated between callbacks — the
@@ -217,9 +230,10 @@ final class PuzzleImageView: UIView {
         setNeedsDisplay()
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata) {
+    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
         self.puzzle = puzzle
         self.lastProgress = progress
+        self.highlightedColorIndex = highlightedColorIndex
         setNeedsDisplay()
     }
 
@@ -357,6 +371,14 @@ final class PuzzleImageView: UIView {
                 )
                 ctx.fill(rect)
             } else {
+                // "See color blocks" hint: paint the background of every
+                // unfilled cell belonging to the currently-selected color
+                // in a very light grey, so the shape of the next color
+                // pops visually without giving away the final color.
+                if let highlighted = highlightedColorIndex, region.colorIndex == highlighted {
+                    ctx.setFillColor(UIColor(white: 0.90, alpha: 1).cgColor)
+                    ctx.fill(rect)
+                }
                 ctx.setStrokeColor(UIColor.separator.cgColor)
                 ctx.setLineWidth(0.5)
                 ctx.stroke(rect)
