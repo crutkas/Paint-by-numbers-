@@ -66,6 +66,9 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         bouncesZoom = true
         showsHorizontalScrollIndicator = false
         showsVerticalScrollIndicator = false
+        // Let kids swipe across the canvas with one finger to paint cells;
+        // scrolling/panning the zoomed image requires two fingers.
+        panGestureRecognizer.minimumNumberOfTouches = 2
 
         imageView.configure(puzzle: puzzle)
         imageView.onTap = { [weak coordinator] regionId in
@@ -99,6 +102,7 @@ final class PuzzleImageView: UIView {
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
+    private var lastSwipedRegionId: Int?
     var onTap: (Int) -> Void = { _ in }
 
     override init(frame: CGRect) {
@@ -106,6 +110,9 @@ final class PuzzleImageView: UIView {
         backgroundColor = .white
         isUserInteractionEnabled = true
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))))
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        addGestureRecognizer(pan)
         contentMode = .scaleAspectFit
     }
 
@@ -138,9 +145,29 @@ final class PuzzleImageView: UIView {
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        deliverRegion(atPoint: recognizer.location(in: self))
+    }
+
+    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed:
+            deliverRegion(atPoint: recognizer.location(in: self), dedupe: true)
+        case .ended, .cancelled, .failed:
+            lastSwipedRegionId = nil
+        default:
+            break
+        }
+    }
+
+    /// Finds the region under `point` and (unless already delivered this
+    /// swipe) forwards it to `onTap`. `dedupe` keeps the pan gesture from
+    /// firing continuously while the finger is inside a single region.
+    private func deliverRegion(atPoint point: CGPoint, dedupe: Bool = false) {
         guard let puzzle, !puzzle.regions.isEmpty else { return }
-        let point = recognizer.location(in: self)
-        guard bounds.contains(point) else { return }
+        guard bounds.contains(point) else {
+            if dedupe { lastSwipedRegionId = nil }
+            return
+        }
         let px = Int((point.x / bounds.width) * CGFloat(puzzle.workingWidth))
         let py = Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
         // Without a stored region-id map we approximate: find the region whose
@@ -154,7 +181,12 @@ final class PuzzleImageView: UIView {
             let dist = dx * dx + dy * dy
             if best == nil || dist < best!.1 { best = (region.id, dist) }
         }
-        if let best { onTap(best.0) }
+        guard let best else { return }
+        if dedupe {
+            if lastSwipedRegionId == best.0 { return }
+            lastSwipedRegionId = best.0
+        }
+        onTap(best.0)
     }
 
     override func draw(_ rect: CGRect) {

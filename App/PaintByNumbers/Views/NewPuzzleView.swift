@@ -13,7 +13,7 @@ struct NewPuzzleView: View {
     @State private var title = "My Puzzle"
     @State private var difficulty: Difficulty = .medium
     @State private var useSquareGrid = true
-    @State private var cellSize: Double = 8
+    @State private var cellSize: Double = 4
     @State private var isGenerating = false
 
     var body: some View {
@@ -47,7 +47,7 @@ struct NewPuzzleView: View {
                         VStack(alignment: .leading) {
                             Text("Cell size: \(Int(cellSize))")
                                 .font(.system(.subheadline, design: .rounded))
-                            Slider(value: $cellSize, in: 3...20, step: 1)
+                            Slider(value: $cellSize, in: 2...16, step: 1)
                         }
                     }
                 }
