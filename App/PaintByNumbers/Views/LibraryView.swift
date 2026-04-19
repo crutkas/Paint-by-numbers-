@@ -17,8 +17,12 @@ struct LibraryView: View {
     // 110pt minimum follows the iOS photo-grid convention (roughly three
     // tiles per row on a portrait iPhone) while keeping tap targets large
     // enough for younger kids. Paired with the 3:4 thumbnail aspect ratio,
-    // tiles end up ~110×147pt instead of the previous ~150×200pt.
-    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 16)]
+    // tiles end up ~110×147pt. A `maximum:` is required so a single tile
+    // on iPad (where the grid container is much wider than the minimum)
+    // doesn't stretch to fill the row and render as a giant landscape
+    // thumbnail; with a cap each cell stays contained regardless of how
+    // many puzzles exist.
+    private let columns = [GridItem(.adaptive(minimum: 110, maximum: 140), spacing: 16)]
 
     var body: some View {
         ScrollView {
@@ -212,14 +216,19 @@ private struct PuzzleTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
-                thumbnail
-                    .frame(maxWidth: .infinity)
-                    // Lock every tile thumbnail to a 3:4 portrait aspect
-                    // ratio so very wide source photos get cropped to the
-                    // tile instead of bleeding out and overlapping the
-                    // adjacent grid cell.
-                    .aspectRatio(3.0 / 4.0, contentMode: .fill)
-                    .clipped()
+                // Use a rounded rectangle as the tile's size-defining
+                // shape: `.aspectRatio(_, contentMode: .fit)` on a shape
+                // guarantees the tile fits its grid cell (never overflows
+                // it the way `.fill` on the image does). The actual photo
+                // is overlaid and `scaledToFill`-clipped to this shape so
+                // wide or tall source images get cropped instead of
+                // blowing out the tile's layout size.
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.gray.opacity(0.15))
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .overlay {
+                        thumbnail
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -257,10 +266,13 @@ private struct PuzzleTile: View {
         let sourceURL = library.store.puzzleDirectory(id: puzzle.id)
             .appendingPathComponent(puzzle.sourceImageFilename)
         if let data = try? Data(contentsOf: sourceURL), let image = UIImage(data: data) {
-            Image(uiImage: image).resizable().scaledToFill()
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
         } else {
-            Rectangle().fill(.gray.opacity(0.2))
-                .overlay(Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary))
+            Image(systemName: "photo")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
         }
     }
 }
