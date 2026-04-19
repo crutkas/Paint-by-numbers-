@@ -131,9 +131,14 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
     /// existing (1x-rasterized) bitmap and the text looks blurry.
     private func updateImageContentScale() {
         let screenScale = (window?.screen.scale) ?? UIScreen.main.scale
+        // Clamp to ≥1 so zooming out (fit-to-screen, which can be < 1 for
+        // large puzzles) still rasterizes at the native screen density
+        // rather than an even coarser one.
         let desired = screenScale * max(zoomScale, 1)
-        // Avoid a redraw storm for tiny scale changes, and cap so we don't
-        // rasterize an absurdly large bitmap at max zoom.
+        // 0.01 is well below "one pixel" at any realistic device scale, so
+        // it filters out the continuous micro-adjustments we'd otherwise
+        // get from bounce/settle callbacks while still catching any real
+        // zoom change.
         let capped = min(desired, screenScale * 4)
         if abs(imageView.contentScaleFactor - capped) > 0.01 {
             imageView.contentScaleFactor = capped
