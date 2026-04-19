@@ -157,6 +157,8 @@ struct LibraryView: View {
                     .background(Color.accentColor.gradient, in: Circle())
                     .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+                    // Rotate the plus into an "×" when expanded so the
+                    // same button obviously doubles as "close menu".
                     .rotationEffect(.degrees(isFABExpanded ? 45 : 0))
             }
             .accessibilityLabel(isFABExpanded ? "Close new puzzle menu" : "New puzzle")
