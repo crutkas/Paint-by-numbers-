@@ -188,6 +188,12 @@ final class PuzzleImageView: UIView {
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
     private var lastSwipedRegionId: Int?
+    /// Most recent pan sample location (in this view's coordinate space). We
+    /// keep it so a fast swipe can be interpolated between callbacks — the
+    /// pan recognizer only fires at display-refresh rate, so without
+    /// interpolation a finger moving across ~5 cells per frame would have
+    /// cells in the middle of each step silently skipped.
+    private var lastSwipedPoint: CGPoint?
     var onTap: (Int) -> Void = { _ in }
 
     override init(frame: CGRect) {
@@ -222,13 +228,52 @@ final class PuzzleImageView: UIView {
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        let point = recognizer.location(in: self)
         switch recognizer.state {
-        case .began, .changed:
-            deliverRegion(atPoint: recognizer.location(in: self), dedupe: true)
+        case .began:
+            lastSwipedPoint = point
+            deliverRegion(atPoint: point, dedupe: true)
+        case .changed:
+            // Walk from the previous pan sample to the current one in small
+            // steps so a fast swipe covers every cell the finger actually
+            // crossed, not just the ones sampled at display-refresh rate.
+            deliverRegionsAlongSegment(from: lastSwipedPoint ?? point, to: point)
+            lastSwipedPoint = point
         case .ended, .cancelled, .failed:
             lastSwipedRegionId = nil
+            lastSwipedPoint = nil
         default:
             break
+        }
+    }
+
+    /// Interpolates between two pan samples, delivering each distinct region
+    /// along the way. Step size is sub-cell so neighboring cells on the path
+    /// are never skipped even on a very fast swipe.
+    private func deliverRegionsAlongSegment(from start: CGPoint, to end: CGPoint) {
+        guard let puzzle, puzzle.workingWidth > 0, puzzle.workingHeight > 0,
+              bounds.width > 0, bounds.height > 0 else {
+            deliverRegion(atPoint: end, dedupe: true)
+            return
+        }
+        // Pick a step size small enough that consecutive samples land in
+        // adjacent working pixels at most. Using half the cell size in each
+        // axis guarantees we don't tunnel past a 1-cell-wide region.
+        let cellWidthInPoints = bounds.width / CGFloat(puzzle.workingWidth)
+        let cellHeightInPoints = bounds.height / CGFloat(puzzle.workingHeight)
+        let stepLength = max(0.5, min(cellWidthInPoints, cellHeightInPoints) * 0.5)
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let distance = (dx * dx + dy * dy).squareRoot()
+        if distance <= stepLength {
+            deliverRegion(atPoint: end, dedupe: true)
+            return
+        }
+        let steps = max(1, Int((distance / stepLength).rounded(.up)))
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let p = CGPoint(x: start.x + dx * t, y: start.y + dy * t)
+            deliverRegion(atPoint: p, dedupe: true)
         }
     }
 
