@@ -32,7 +32,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
         guard regionId >= 0 && regionId < puzzle.regions.count else { return }
         let region = puzzle.regions[regionId]
         guard region.colorIndex == selectedColorIndex else {
-            view.flashWrong(regionId: regionId)
+            // Intentionally no visual flash here — just a soft haptic nudge so
+            // the wrong-color tap doesn't strobe the whole canvas red.
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             return
         }
@@ -55,30 +56,38 @@ struct PuzzleCanvasView: UIViewRepresentable {
 /// gesture recognizers fighting the canvas-tap gesture.
 final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
     private let imageView = PuzzleImageView()
+    /// Natural (un-zoomed) size of the canvas. Stored so we can recompute the
+    /// fit-to-screen minimum zoom whenever the scroll view is resized.
+    private var canvasSize: CGSize = .zero
+    /// `true` until the first layout pass has applied the fit-to-screen zoom,
+    /// so rotations / size changes after that don't keep snapping the user
+    /// back to the fit scale.
+    private var hasAppliedInitialZoom = false
 
     func configure(
         with puzzle: PuzzleMetadata,
         coordinator: PuzzleCanvasView.Coordinator
     ) {
         delegate = self
-        minimumZoomScale = 1.0
+        // `minimumZoomScale` is recomputed in `layoutSubviews` once we know
+        // our own bounds; we start permissive so the first pinch-out doesn't
+        // snap back before layout runs.
+        minimumZoomScale = 0.1
         maximumZoomScale = 8.0
         bouncesZoom = true
         showsHorizontalScrollIndicator = false
         showsVerticalScrollIndicator = false
-        // Let kids swipe across the canvas with one finger to paint cells;
-        // scrolling/panning the zoomed image requires two fingers.
-        panGestureRecognizer.minimumNumberOfTouches = 2
 
         imageView.configure(puzzle: puzzle)
         imageView.onTap = { [weak coordinator] regionId in
             coordinator?.onTapRegion(regionId)
         }
-        imageView.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: puzzle.workingWidth * 8, height: puzzle.workingHeight * 8)
+        canvasSize = CGSize(
+            width: puzzle.workingWidth * 8,
+            height: puzzle.workingHeight * 8
         )
-        contentSize = imageView.frame.size
+        imageView.frame = CGRect(origin: .zero, size: canvasSize)
+        contentSize = canvasSize
         addSubview(imageView)
     }
 
@@ -90,11 +99,56 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         imageView.update(progress: progress, puzzle: puzzle)
     }
 
-    func flashWrong(regionId: Int) {
-        imageView.flashWrong(regionId: regionId)
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerImageView()
     }
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateMinimumZoomScaleForSize(bounds.size)
+        if !hasAppliedInitialZoom, bounds.width > 0, bounds.height > 0, canvasSize != .zero {
+            zoomScale = minimumZoomScale
+            hasAppliedInitialZoom = true
+        }
+        centerImageView()
+    }
+
+    /// Picks a `minimumZoomScale` that lets the whole canvas fit inside the
+    /// visible bounds, so pinching out always reveals the full puzzle instead
+    /// of bouncing back to 1:1.
+    private func updateMinimumZoomScaleForSize(_ size: CGSize) {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              size.width > 0, size.height > 0 else { return }
+        let xScale = size.width / canvasSize.width
+        let yScale = size.height / canvasSize.height
+        let fitScale = min(xScale, yScale)
+        // Never go above 1.0 as the minimum — for small puzzles, fit > 1.0 and
+        // we still want 1:1 as the "natural" lower bound.
+        minimumZoomScale = min(1.0, fitScale)
+        if maximumZoomScale < minimumZoomScale {
+            maximumZoomScale = minimumZoomScale
+        }
+        if zoomScale < minimumZoomScale {
+            zoomScale = minimumZoomScale
+        }
+    }
+
+    /// Keeps the image view centered when it's smaller than the scroll view
+    /// (i.e. when the user has zoomed out past 1:1). Without this the image
+    /// sticks to the top-left corner and "snaps" visually during pinch.
+    private func centerImageView() {
+        let boundsSize = bounds.size
+        var frame = imageView.frame
+        frame.origin.x = frame.size.width < boundsSize.width
+            ? (boundsSize.width - frame.size.width) / 2
+            : 0
+        frame.origin.y = frame.size.height < boundsSize.height
+            ? (boundsSize.height - frame.size.height) / 2
+            : 0
+        imageView.frame = frame
+    }
 }
 
 /// Owns the rasterized canvas and the region-id hit-test map.
@@ -102,7 +156,6 @@ final class PuzzleImageView: UIView {
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
-    private var lastSwipedRegionId: Int?
     var onTap: (Int) -> Void = { _ in }
 
     override init(frame: CGRect) {
@@ -110,9 +163,6 @@ final class PuzzleImageView: UIView {
         backgroundColor = .white
         isUserInteractionEnabled = true
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))))
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        pan.maximumNumberOfTouches = 1
-        addGestureRecognizer(pan)
         contentMode = .scaleAspectFit
     }
 
@@ -132,42 +182,14 @@ final class PuzzleImageView: UIView {
         setNeedsDisplay()
     }
 
-    func flashWrong(regionId: Int) {
-        let flash = UIView(frame: bounds)
-        flash.backgroundColor = UIColor.systemRed.withAlphaComponent(0.25)
-        flash.isUserInteractionEnabled = false
-        addSubview(flash)
-        UIView.animate(withDuration: 0.25, animations: {
-            flash.alpha = 0
-        }) { _ in
-            flash.removeFromSuperview()
-        }
-    }
-
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         deliverRegion(atPoint: recognizer.location(in: self))
     }
 
-    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began, .changed:
-            deliverRegion(atPoint: recognizer.location(in: self), dedupe: true)
-        case .ended, .cancelled, .failed:
-            lastSwipedRegionId = nil
-        default:
-            break
-        }
-    }
-
-    /// Finds the region under `point` and (unless already delivered this
-    /// swipe) forwards it to `onTap`. `dedupe` keeps the pan gesture from
-    /// firing continuously while the finger is inside a single region.
-    private func deliverRegion(atPoint point: CGPoint, dedupe: Bool = false) {
+    /// Finds the region under `point` and forwards it to `onTap`.
+    private func deliverRegion(atPoint point: CGPoint) {
         guard let puzzle, !puzzle.regions.isEmpty else { return }
-        guard bounds.contains(point) else {
-            if dedupe { lastSwipedRegionId = nil }
-            return
-        }
+        guard bounds.contains(point) else { return }
         let px = Int((point.x / bounds.width) * CGFloat(puzzle.workingWidth))
         let py = Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
         // Without a stored region-id map we approximate: find the region whose
@@ -182,10 +204,6 @@ final class PuzzleImageView: UIView {
             if best == nil || dist < best!.1 { best = (region.id, dist) }
         }
         guard let best else { return }
-        if dedupe {
-            if lastSwipedRegionId == best.0 { return }
-            lastSwipedRegionId = best.0
-        }
         onTap(best.0)
     }
 
