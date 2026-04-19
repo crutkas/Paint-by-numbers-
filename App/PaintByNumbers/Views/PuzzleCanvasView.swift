@@ -32,7 +32,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
         guard regionId >= 0 && regionId < puzzle.regions.count else { return }
         let region = puzzle.regions[regionId]
         guard region.colorIndex == selectedColorIndex else {
-            view.flashWrong(regionId: regionId)
+            // Intentionally no visual flash here — just a soft haptic nudge so
+            // the wrong-color tap doesn't strobe the whole canvas red.
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             return
         }
@@ -55,13 +56,23 @@ struct PuzzleCanvasView: UIViewRepresentable {
 /// gesture recognizers fighting the canvas-tap gesture.
 final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
     private let imageView = PuzzleImageView()
+    /// Natural (un-zoomed) size of the canvas. Stored so we can recompute the
+    /// fit-to-screen minimum zoom whenever the scroll view is resized.
+    private var canvasSize: CGSize = .zero
+    /// `true` until the first layout pass has applied the fit-to-screen zoom,
+    /// so rotations / size changes after that don't keep snapping the user
+    /// back to the fit scale.
+    private var hasAppliedInitialZoom = false
 
     func configure(
         with puzzle: PuzzleMetadata,
         coordinator: PuzzleCanvasView.Coordinator
     ) {
         delegate = self
-        minimumZoomScale = 1.0
+        // `minimumZoomScale` is recomputed in `layoutSubviews` once we know
+        // our own bounds; we start permissive so the first pinch-out doesn't
+        // snap back before layout runs.
+        minimumZoomScale = 0.1
         maximumZoomScale = 8.0
         bouncesZoom = true
         showsHorizontalScrollIndicator = false
@@ -74,11 +85,12 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         imageView.onTap = { [weak coordinator] regionId in
             coordinator?.onTapRegion(regionId)
         }
-        imageView.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: puzzle.workingWidth * 8, height: puzzle.workingHeight * 8)
+        canvasSize = CGSize(
+            width: puzzle.workingWidth * 8,
+            height: puzzle.workingHeight * 8
         )
-        contentSize = imageView.frame.size
+        imageView.frame = CGRect(origin: .zero, size: canvasSize)
+        contentSize = canvasSize
         addSubview(imageView)
     }
 
@@ -90,11 +102,56 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         imageView.update(progress: progress, puzzle: puzzle)
     }
 
-    func flashWrong(regionId: Int) {
-        imageView.flashWrong(regionId: regionId)
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerImageView()
     }
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateMinimumZoomScaleForSize(bounds.size)
+        if !hasAppliedInitialZoom, bounds.width > 0, bounds.height > 0, canvasSize != .zero {
+            zoomScale = minimumZoomScale
+            hasAppliedInitialZoom = true
+        }
+        centerImageView()
+    }
+
+    /// Picks a `minimumZoomScale` that lets the whole canvas fit inside the
+    /// visible bounds, so pinching out always reveals the full puzzle instead
+    /// of bouncing back to 1:1.
+    private func updateMinimumZoomScaleForSize(_ size: CGSize) {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              size.width > 0, size.height > 0 else { return }
+        let xScale = size.width / canvasSize.width
+        let yScale = size.height / canvasSize.height
+        let fitScale = min(xScale, yScale)
+        // Never go above 1.0 as the minimum — for small puzzles, fit > 1.0 and
+        // we still want 1:1 as the "natural" lower bound.
+        minimumZoomScale = min(1.0, fitScale)
+        if maximumZoomScale < minimumZoomScale {
+            maximumZoomScale = minimumZoomScale
+        }
+        if zoomScale < minimumZoomScale {
+            zoomScale = minimumZoomScale
+        }
+    }
+
+    /// Keeps the image view centered when it's smaller than the scroll view
+    /// (i.e. when the user has zoomed out past 1:1). Without this the image
+    /// sticks to the top-left corner and "snaps" visually during pinch.
+    private func centerImageView() {
+        let boundsSize = bounds.size
+        var frame = imageView.frame
+        frame.origin.x = frame.size.width < boundsSize.width
+            ? (boundsSize.width - frame.size.width) / 2
+            : 0
+        frame.origin.y = frame.size.height < boundsSize.height
+            ? (boundsSize.height - frame.size.height) / 2
+            : 0
+        imageView.frame = frame
+    }
 }
 
 /// Owns the rasterized canvas and the region-id hit-test map.
@@ -130,18 +187,6 @@ final class PuzzleImageView: UIView {
         self.puzzle = puzzle
         self.lastProgress = progress
         setNeedsDisplay()
-    }
-
-    func flashWrong(regionId: Int) {
-        let flash = UIView(frame: bounds)
-        flash.backgroundColor = UIColor.systemRed.withAlphaComponent(0.25)
-        flash.isUserInteractionEnabled = false
-        addSubview(flash)
-        UIView.animate(withDuration: 0.25, animations: {
-            flash.alpha = 0
-        }) { _ in
-            flash.removeFromSuperview()
-        }
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
