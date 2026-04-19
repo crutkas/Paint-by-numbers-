@@ -11,9 +11,9 @@ public enum Difficulty: String, Codable, CaseIterable, Sendable {
     /// Working-image long-edge resolution. Smaller == bigger, chunkier cells.
     public var workingLongEdge: Int {
         switch self {
-        case .easy: return 64
-        case .medium: return 128
-        case .hard: return 192
+        case .easy: return 96
+        case .medium: return 192
+        case .hard: return 320
         }
     }
 
@@ -38,9 +38,10 @@ public enum Difficulty: String, Codable, CaseIterable, Sendable {
 
 /// Strategies for converting a quantized image into paintable regions.
 ///
-/// - `.squareGrid`: overlays a square grid of `cellSize` pixels and replaces
-///   each cell with the majority color, then runs connected-component labeling.
-///   Easiest for young kids — every "region" is a cell.
+/// - `.squareGrid`: overlays a square grid of `cellSize` pixels and turns each
+///   cell into its own region, colored by the majority palette index found
+///   inside it. Cells never overlap, so the result is a clean non-overlapping
+///   grid of numbered squares — easiest for young kids.
 /// - `.freeformRegions`: runs connected-component labeling on the raw
 ///   quantized image and merges small regions. More artistic for older kids.
 public enum GridStrategy: Codable, Equatable, Sendable {
@@ -92,39 +93,47 @@ public enum PuzzleGenerator {
             seed: seed
         )
 
-        // 3. Apply grid strategy to obtain a "flattened" label array.
-        let flattened: [Int]
+        // 3. Apply grid strategy and build regions.
         switch strategy {
         case .squareGrid(let cellSize):
-            flattened = flattenToSquareGrid(
+            // Each grid cell becomes its own region. Regions are therefore
+            // guaranteed to be non-overlapping squares (or edge rectangles
+            // when the image dimensions aren't a multiple of the cell size),
+            // which matches kids' mental model of "paint this square".
+            let built = buildSquareGridRegions(
                 labels: labels,
                 width: ww,
                 height: wh,
                 cellSize: max(1, cellSize),
                 paletteSize: palette.colors.count
             )
+            return GeneratedPuzzle(
+                palette: palette,
+                regions: built.regions,
+                regionIds: built.regionIds,
+                workingWidth: ww,
+                workingHeight: wh,
+                strategy: strategy,
+                difficulty: difficulty
+            )
         case .freeformRegions:
-            flattened = labels
+            let raw = ConnectedComponents.label(colorIndices: labels, width: ww, height: wh)
+            let merged = ConnectedComponents.mergeSmallRegions(
+                raw,
+                width: ww,
+                height: wh,
+                minPixelCount: difficulty.minRegionPixels
+            )
+            return GeneratedPuzzle(
+                palette: palette,
+                regions: merged.regions,
+                regionIds: merged.regionIds,
+                workingWidth: ww,
+                workingHeight: wh,
+                strategy: strategy,
+                difficulty: difficulty
+            )
         }
-
-        // 4. Connected components + small-region merge.
-        let raw = ConnectedComponents.label(colorIndices: flattened, width: ww, height: wh)
-        let merged = ConnectedComponents.mergeSmallRegions(
-            raw,
-            width: ww,
-            height: wh,
-            minPixelCount: difficulty.minRegionPixels
-        )
-
-        return GeneratedPuzzle(
-            palette: palette,
-            regions: merged.regions,
-            regionIds: merged.regionIds,
-            workingWidth: ww,
-            workingHeight: wh,
-            strategy: strategy,
-            difficulty: difficulty
-        )
     }
 
     /// Pick a working size that preserves aspect ratio and whose long edge is
@@ -144,17 +153,28 @@ public enum PuzzleGenerator {
         }
     }
 
-    /// Replaces every `cellSize` x `cellSize` block with the majority color
-    /// index found inside it. Produces flat, chunky cells ideal for young kids.
-    private static func flattenToSquareGrid(
+    /// Result of turning a quantized label array into per-cell regions.
+    private struct SquareGridBuild {
+        let regions: [PuzzleRegion]
+        let regionIds: [Int]
+    }
+
+    /// For the square-grid strategy, treat each `cellSize` x `cellSize` block
+    /// as its own region, assigned the majority color index found inside it.
+    /// This guarantees every region is a single non-overlapping rectangle
+    /// (square for interior cells, possibly narrower for right/bottom edges),
+    /// which is what "just a square grid" looks like on screen.
+    private static func buildSquareGridRegions(
         labels: [Int],
         width: Int,
         height: Int,
         cellSize: Int,
         paletteSize: Int
-    ) -> [Int] {
-        var out = labels
+    ) -> SquareGridBuild {
+        var regionIds = [Int](repeating: -1, count: width * height)
+        var regions: [PuzzleRegion] = []
         var histogram = [Int](repeating: 0, count: max(1, paletteSize))
+
         var y = 0
         while y < height {
             var x = 0
@@ -171,7 +191,7 @@ public enum PuzzleGenerator {
                     }
                 }
 
-                // Majority.
+                // Majority color for this cell.
                 var bestIndex = 0
                 var bestCount = histogram[0]
                 for i in 1..<histogram.count where histogram[i] > bestCount {
@@ -179,16 +199,32 @@ public enum PuzzleGenerator {
                     bestIndex = i
                 }
 
+                let newId = regions.count
+                var pixelCount = 0
                 for yy in y..<y2 {
                     for xx in x..<x2 {
-                        out[yy * width + xx] = bestIndex
+                        regionIds[yy * width + xx] = newId
+                        pixelCount += 1
                     }
                 }
+
+                let maxX = x2 - 1
+                let maxY = y2 - 1
+                regions.append(
+                    PuzzleRegion(
+                        id: newId,
+                        colorIndex: bestIndex,
+                        pixelCount: pixelCount,
+                        bounds: PixelRect(minX: x, minY: y, maxX: maxX, maxY: maxY),
+                        centroid: PixelPoint(x: (x + maxX) / 2, y: (y + maxY) / 2)
+                    )
+                )
 
                 x += cellSize
             }
             y += cellSize
         }
-        return out
+
+        return SquareGridBuild(regions: regions, regionIds: regionIds)
     }
 }

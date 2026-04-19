@@ -67,17 +67,18 @@ final class PuzzleGeneratorTests: XCTestCase {
         let (w, h) = PuzzleGenerator.workingSize(forImage: img, difficulty: .medium)
         XCTAssertEqual(w, Difficulty.medium.workingLongEdge)
         // 4:1 aspect ratio should be preserved within one pixel.
-        XCTAssertEqual(h, 32)
+        XCTAssertEqual(h, Int((Double(Difficulty.medium.workingLongEdge) / 4.0).rounded()))
     }
 
     func testWorkingSizeRoundsRatherThanTruncates() {
-        // 300x100 at target 128 -> expected h = round(100/300 * 128) = 43,
-        // not 42 (which a `.rounded()`-on-wrong-operand truncation bug would
+        // 300x100 at target `workingLongEdge` -> expected h = round(100/300 * target),
+        // not one less (which a `.rounded()`-on-wrong-operand truncation bug would
         // produce). This regression-tests the `workingSize` rounding fix.
         let img = RGBImage(width: 300, height: 100, fill: RGBColor(r: 0, g: 0, b: 0))
         let (w, h) = PuzzleGenerator.workingSize(forImage: img, difficulty: .medium)
-        XCTAssertEqual(w, 128)
-        XCTAssertEqual(h, 43)
+        let target = Difficulty.medium.workingLongEdge
+        XCTAssertEqual(w, target)
+        XCTAssertEqual(h, Int(((100.0 / 300.0) * Double(target)).rounded()))
     }
 
     func testRegionsColorIndicesAreValid() {
