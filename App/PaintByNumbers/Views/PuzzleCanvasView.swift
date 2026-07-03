@@ -12,6 +12,7 @@ struct PuzzleCanvasView: UIViewRepresentable {
     @Binding var selectedColorIndex: Int
 
     @AppStorage("pbn.showColorBlocks") private var showColorBlocks = false
+    @AppStorage("pbn.haptics") private var hapticsOn = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(puzzle: puzzle)
@@ -20,8 +21,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
     func makeUIView(context: Context) -> PuzzleScrollView {
         let view = PuzzleScrollView()
         view.configure(with: puzzle, coordinator: context.coordinator)
-        context.coordinator.onTapRegion = { regionId in
-            handleTap(regionId: regionId, in: context.coordinator, view: view)
+        context.coordinator.onTapRegions = { regionIds in
+            handleTap(regionIds: regionIds, in: context.coordinator, view: view)
         }
         return view
     }
@@ -34,29 +35,41 @@ struct PuzzleCanvasView: UIViewRepresentable {
         )
     }
 
-    private func handleTap(regionId: Int, in coordinator: Coordinator, view: PuzzleScrollView) {
-        guard regionId >= 0 && regionId < puzzle.regions.count else { return }
-        let region = puzzle.regions[regionId]
-        guard region.colorIndex == selectedColorIndex else {
+    private func handleTap(regionIds: [Int], in coordinator: Coordinator, view: PuzzleScrollView) {
+        let validRegionIds = regionIds.filter { $0 >= 0 && $0 < puzzle.regions.count }
+        guard !validRegionIds.isEmpty else { return }
+
+        let fillableRegionIds = validRegionIds.filter { regionId in
+            let region = puzzle.regions[regionId]
+            return region.colorIndex == selectedColorIndex && !progress.filledRegionIds.contains(regionId)
+        }
+
+        guard !fillableRegionIds.isEmpty else {
             // Intentionally no visual flash here — just a soft haptic nudge so
             // the wrong-color tap doesn't strobe the whole canvas red.
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if hapticsOn {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
             return
         }
-        guard !progress.filledRegionIds.contains(regionId) else { return }
-        progress.filledRegionIds.insert(regionId)
+
+        for regionId in fillableRegionIds {
+            progress.filledRegionIds.insert(regionId)
+        }
         progress.lastEditedAt = Date()
         view.redraw(
             progress: progress,
             puzzle: puzzle,
             highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
         )
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if hapticsOn {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 
     final class Coordinator {
         let puzzle: PuzzleMetadata
-        var onTapRegion: (Int) -> Void = { _ in }
+        var onTapRegions: ([Int]) -> Void = { _ in }
         init(puzzle: PuzzleMetadata) { self.puzzle = puzzle }
     }
 }
@@ -100,8 +113,8 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         panGestureRecognizer.minimumNumberOfTouches = 2
 
         imageView.configure(puzzle: puzzle)
-        imageView.onTap = { [weak coordinator] regionId in
-            coordinator?.onTapRegion(regionId)
+        imageView.onTapRegions = { [weak coordinator] regionIds in
+            coordinator?.onTapRegions(regionIds)
         }
         canvasSize = CGSize(
             width: puzzle.workingWidth * 8,
@@ -233,7 +246,9 @@ final class PuzzleImageView: UIView {
     /// interpolation a finger moving across ~5 cells per frame would have
     /// cells in the middle of each step silently skipped.
     private var lastSwipedPoint: CGPoint?
-    var onTap: (Int) -> Void = { _ in }
+    private var swipedRegionIds: Set<Int> = []
+    @AppStorage("pbn.largeBrush") private var largeBrush = false
+    var onTapRegions: ([Int]) -> Void = { _ in }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -271,8 +286,9 @@ final class PuzzleImageView: UIView {
         let point = recognizer.location(in: self)
         switch recognizer.state {
         case .began:
+            swipedRegionIds.removeAll(keepingCapacity: true)
             lastSwipedPoint = point
-            deliverRegion(atPoint: point, dedupe: true)
+            deliverRegionIds(atPoint: point, dedupe: true)
         case .changed:
             // Walk from the previous pan sample to the current one in small
             // steps so a fast swipe covers every cell the finger actually
@@ -280,7 +296,7 @@ final class PuzzleImageView: UIView {
             deliverRegionsAlongSegment(from: lastSwipedPoint ?? point, to: point)
             lastSwipedPoint = point
         case .ended, .cancelled, .failed:
-            lastSwipedRegionId = nil
+            swipedRegionIds.removeAll(keepingCapacity: true)
             lastSwipedPoint = nil
         default:
             break
@@ -293,7 +309,7 @@ final class PuzzleImageView: UIView {
     private func deliverRegionsAlongSegment(from start: CGPoint, to end: CGPoint) {
         guard let puzzle, puzzle.workingWidth > 0, puzzle.workingHeight > 0,
               bounds.width > 0, bounds.height > 0 else {
-            deliverRegion(atPoint: end, dedupe: true)
+            deliverRegionIds(atPoint: end, dedupe: true)
             return
         }
         // Pick a step size small enough that consecutive samples land in
@@ -306,45 +322,53 @@ final class PuzzleImageView: UIView {
         let dy = end.y - start.y
         let distance = (dx * dx + dy * dy).squareRoot()
         if distance <= stepLength {
-            deliverRegion(atPoint: end, dedupe: true)
+            deliverRegionIds(atPoint: end, dedupe: true)
             return
         }
         let steps = max(1, Int((distance / stepLength).rounded(.up)))
         for i in 1...steps {
             let t = CGFloat(i) / CGFloat(steps)
             let p = CGPoint(x: start.x + dx * t, y: start.y + dy * t)
-            deliverRegion(atPoint: p, dedupe: true)
+            deliverRegionIds(atPoint: p, dedupe: true)
         }
     }
 
-    /// Finds the region under `point` and (unless already delivered this
-    /// swipe) forwards it to `onTap`. `dedupe` keeps the pan gesture from
+    /// Finds the region(s) under `point` and (unless already delivered this
+    /// swipe) forwards them to `onTapRegions`. `dedupe` keeps the pan gesture from
     /// firing continuously while the finger is inside a single region.
-    private func deliverRegion(atPoint point: CGPoint, dedupe: Bool = false) {
+    private func deliverRegionIds(atPoint point: CGPoint, dedupe: Bool = false) {
         guard let puzzle, !puzzle.regions.isEmpty else { return }
         guard bounds.contains(point) else {
-            if dedupe { lastSwipedRegionId = nil }
+            if dedupe { swipedRegionIds.removeAll(keepingCapacity: true) }
             return
         }
-        let px = Int((point.x / bounds.width) * CGFloat(puzzle.workingWidth))
-        let py = Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
-        // Without a stored region-id map we approximate: find the region whose
-        // bounds contain the tap, preferring the one whose centroid is closest.
-        var best: (Int, Double)? = nil
-        for region in puzzle.regions {
-            let b = region.bounds
-            guard px >= b.minX && px <= b.maxX && py >= b.minY && py <= b.maxY else { continue }
-            let dx = Double(region.centroid.x - px)
-            let dy = Double(region.centroid.y - py)
-            let dist = dx * dx + dy * dy
-            if best == nil || dist < best!.1 { best = (region.id, dist) }
-        }
-        guard let best else { return }
+        let pixelPoint = PixelPoint(
+            x: Int((point.x / bounds.width) * CGFloat(puzzle.workingWidth)),
+            y: Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
+        )
+        let brushRadius: Int = {
+            guard largeBrush else { return 0 }
+            switch puzzle.strategy {
+            case .squareGrid(let cellSize):
+                return max(1, cellSize)
+            case .freeformRegions:
+                return 6
+            }
+        }()
+        let touchedRegionIds = PuzzleBrush.regionIds(
+            around: pixelPoint,
+            brushRadius: brushRadius,
+            in: puzzle
+        )
+        guard !touchedRegionIds.isEmpty else { return }
+        let regionIdsToDeliver: [Int]
         if dedupe {
-            if lastSwipedRegionId == best.0 { return }
-            lastSwipedRegionId = best.0
+            regionIdsToDeliver = touchedRegionIds.filter { swipedRegionIds.insert($0).inserted }
+        } else {
+            regionIdsToDeliver = touchedRegionIds
         }
-        onTap(best.0)
+        guard !regionIdsToDeliver.isEmpty else { return }
+        onTapRegions(regionIdsToDeliver)
     }
 
     override func draw(_ rect: CGRect) {

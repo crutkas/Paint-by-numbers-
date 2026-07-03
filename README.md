@@ -23,7 +23,7 @@ puzzles via the bundled Share Extension.
 │   ├── PuzzleMetadata.swift        Codable models + progress helpers
 │   ├── PuzzleStore.swift           Disk-backed metadata + progress store
 │   └── ShareImport.swift           URL scheme + App-Group handoff payload
-├── Tests/PBNCoreTests/         XCTest suite (48 tests) — runs on Linux
+├── Tests/PBNCoreTests/         XCTest suite (56 tests) — runs on Linux
 ├── App/PaintByNumbers/         SwiftUI iOS/iPadOS app
 │   ├── PaintByNumbersApp.swift     @main entry
 │   ├── PuzzleLibrary.swift         ObservableObject backing the app
@@ -66,7 +66,7 @@ Select the **PaintByNumbers** scheme and an iPhone/iPad simulator, then ⌘R.
 swift test --parallel
 ```
 
-This runs the entire `PBNCoreTests` suite (48 tests) against the PBN engine,
+This runs the entire `PBNCoreTests` suite (56 tests) against the PBN engine,
 covering color math, image scaling, k-means quantization determinism and edge
 cases, connected-components labeling and region merging, the full puzzle
 generator, progress/completion calculation, on-disk puzzle store round-trips,
@@ -107,6 +107,7 @@ GitHub Actions runs two jobs on every push and pull request (see
 | Color quantization | k-means++ in `KMeansQuantizer.swift` |
 | Region generation | `ConnectedComponents.swift` with small-region merging |
 | Save puzzle state | `PuzzleStore.saveProgress` / `loadProgress` |
+| Larger-brush painting assist | `SettingsView` + `PuzzleCanvasView` + `PuzzleBrush` |
 | Save final image | `CompletionView` → `PHPhotoLibrary` |
 | Share final image | `CompletionView` → `UIActivityViewController` |
 | Share **into** the app | `PBNShareExtension` → App Group → `paintbynumbers://import?token=…` |
