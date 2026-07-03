@@ -72,7 +72,7 @@ final class PuzzleBrushTests: XCTestCase {
         XCTAssertEqual(
             PuzzleBrush.regionIds(
                 around: PixelPoint(x: 1, y: 1),
-                brushRadius: 3,
+                brushRadius: 2,
                 in: puzzle
             ),
             [0, 1, 2]

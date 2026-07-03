@@ -13,6 +13,7 @@ struct PuzzleCanvasView: UIViewRepresentable {
 
     @AppStorage("pbn.showColorBlocks") private var showColorBlocks = false
     @AppStorage("pbn.haptics") private var hapticsOn = true
+    @AppStorage("pbn.largeBrush") private var largeBrush = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(puzzle: puzzle)
@@ -31,7 +32,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
         uiView.update(
             progress: progress,
             puzzle: puzzle,
-            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil,
+            largeBrushEnabled: largeBrush
         )
     }
 
@@ -60,7 +62,8 @@ struct PuzzleCanvasView: UIViewRepresentable {
         view.redraw(
             progress: progress,
             puzzle: puzzle,
-            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil,
+            largeBrushEnabled: largeBrush
         )
         if hapticsOn {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -125,12 +128,32 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
-        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
+    func update(
+        progress: PuzzleProgress,
+        puzzle: PuzzleMetadata,
+        highlightedColorIndex: Int?,
+        largeBrushEnabled: Bool
+    ) {
+        imageView.update(
+            progress: progress,
+            puzzle: puzzle,
+            highlightedColorIndex: highlightedColorIndex,
+            largeBrushEnabled: largeBrushEnabled
+        )
     }
 
-    func redraw(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
-        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
+    func redraw(
+        progress: PuzzleProgress,
+        puzzle: PuzzleMetadata,
+        highlightedColorIndex: Int?,
+        largeBrushEnabled: Bool
+    ) {
+        imageView.update(
+            progress: progress,
+            puzzle: puzzle,
+            highlightedColorIndex: highlightedColorIndex,
+            largeBrushEnabled: largeBrushEnabled
+        )
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
@@ -247,7 +270,7 @@ final class PuzzleImageView: UIView {
     /// cells in the middle of each step silently skipped.
     private var lastSwipedPoint: CGPoint?
     private var swipedRegionIds: Set<Int> = []
-    @AppStorage("pbn.largeBrush") private var largeBrush = false
+    private var largeBrushEnabled = false
     var onTapRegions: ([Int]) -> Void = { _ in }
 
     override init(frame: CGRect) {
@@ -271,10 +294,16 @@ final class PuzzleImageView: UIView {
         setNeedsDisplay()
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
+    func update(
+        progress: PuzzleProgress,
+        puzzle: PuzzleMetadata,
+        highlightedColorIndex: Int?,
+        largeBrushEnabled: Bool
+    ) {
         self.puzzle = puzzle
         self.lastProgress = progress
         self.highlightedColorIndex = highlightedColorIndex
+        self.largeBrushEnabled = largeBrushEnabled
         setNeedsDisplay()
     }
 
@@ -350,7 +379,7 @@ final class PuzzleImageView: UIView {
             guard largeBrush else { return 0 }
             switch puzzle.strategy {
             case .squareGrid(let cellSize):
-                return max(1, cellSize)
+                return max(1, (cellSize + 1) / 2)
             case .freeformRegions:
                 return 6
             }
