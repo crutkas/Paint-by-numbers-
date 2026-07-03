@@ -261,6 +261,13 @@ final class PuzzleImageView: UIView {
     // chunkier than square-grid cells, so this stays intentionally modest.
     private static let freeformBrushRadius = 6
 
+    private static func squareGridBrushRadius(forCellSize cellSize: Int) -> Int {
+        // Half a cell plus one working pixel reaches over the tapped square's
+        // edge into its immediate neighbors without jumping several cells away
+        // in one stroke; for example, cellSize 8 becomes a radius of 5.
+        max(1, cellSize / 2 + 1)
+    }
+
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
@@ -385,11 +392,7 @@ final class PuzzleImageView: UIView {
             guard largeBrushEnabled else { return 0 }
             switch puzzle.strategy {
             case .squareGrid(let cellSize):
-                // Half a cell plus one working pixel is enough to reach across
-                // the tapped square's edge into its immediate neighbors, which
-                // makes the large brush feel broader without jumping several
-                // cells away in a single stroke (for example, cellSize 8 -> 5).
-                return max(1, cellSize / 2 + 1)
+                return Self.squareGridBrushRadius(forCellSize: cellSize)
             case .freeformRegions:
                 // Freeform regions can be irregular, so use a small fixed
                 // radius that catches nearby blobs without leaping too far.
