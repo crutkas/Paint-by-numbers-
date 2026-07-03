@@ -79,9 +79,9 @@ final class PuzzleBrushTests: XCTestCase {
         )
     }
 
-    func testLargeBrushStillExcludesFarAwayRegions() {
-        // WHY: even with the larger brush enabled, painting one corner of the
-        // puzzle must not accidentally jump across the board.
+    func testSmallBrushRadiusExcludesDistantRegions() {
+        // WHY: the brush radius needs a clear cutoff so expanding the brush
+        // slightly does not suddenly fill cells from far across the puzzle.
         let puzzle = makePuzzle()
 
         XCTAssertEqual(

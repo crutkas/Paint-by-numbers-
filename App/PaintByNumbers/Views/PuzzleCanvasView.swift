@@ -379,7 +379,7 @@ final class PuzzleImageView: UIView {
             guard largeBrush else { return 0 }
             switch puzzle.strategy {
             case .squareGrid(let cellSize):
-                return max(1, (cellSize + 1) / 2)
+                return max(1, cellSize / 2 + 1)
             case .freeformRegions:
                 return 6
             }
