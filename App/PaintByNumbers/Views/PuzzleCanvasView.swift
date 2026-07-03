@@ -256,6 +256,9 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
 
 /// Owns the rasterized canvas and the region-id hit-test map.
 final class PuzzleImageView: UIView {
+    // Tuned to catch nearby freeform blobs around a child's finger without
+    // jumping across clearly separate shapes; freeform regions are already
+    // chunkier than square-grid cells, so this stays intentionally modest.
     private static let freeformBrushRadius = 6
 
     private var puzzle: PuzzleMetadata?
@@ -385,7 +388,7 @@ final class PuzzleImageView: UIView {
                 // Half a cell plus one working pixel is enough to reach across
                 // the tapped square's edge into its immediate neighbors, which
                 // makes the large brush feel broader without jumping several
-                // cells away in a single stroke.
+                // cells away in a single stroke (for example, cellSize 8 -> 5).
                 return max(1, cellSize / 2 + 1)
             case .freeformRegions:
                 // Freeform regions can be irregular, so use a small fixed
