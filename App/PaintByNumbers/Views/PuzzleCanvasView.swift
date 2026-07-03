@@ -256,6 +256,8 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
 
 /// Owns the rasterized canvas and the region-id hit-test map.
 final class PuzzleImageView: UIView {
+    private static let freeformBrushRadius = 6
+
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
@@ -380,14 +382,15 @@ final class PuzzleImageView: UIView {
             guard largeBrushEnabled else { return 0 }
             switch puzzle.strategy {
             case .squareGrid(let cellSize):
-                // For square grids, cover the tapped cell plus immediate
-                // neighbors so the large brush feels bigger without painting
-                // a huge chunk of the board at once.
+                // Half a cell plus one working pixel is enough to reach across
+                // the tapped square's edge into its immediate neighbors, which
+                // makes the large brush feel broader without jumping several
+                // cells away in a single stroke.
                 return max(1, cellSize / 2 + 1)
             case .freeformRegions:
                 // Freeform regions can be irregular, so use a small fixed
                 // radius that catches nearby blobs without leaping too far.
-                return 6
+                return Self.freeformBrushRadius
             }
         }()
         let touchedRegionIds = PuzzleBrush.regionIds(

@@ -38,7 +38,7 @@ final class PuzzleBrushTests: XCTestCase {
             )
         ]
         return PuzzleMetadata(
-            title: "Brush",
+            title: "Brush Test Puzzle",
             difficulty: .easy,
             strategy: .squareGrid(cellSize: 3),
             workingWidth: 6,
