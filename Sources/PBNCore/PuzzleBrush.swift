@@ -19,6 +19,8 @@ public enum PuzzleBrush {
         }
 
         let candidates = puzzle.regions.compactMap { region -> Candidate? in
+            // Clamp the touch point into the region's bounding box so we can
+            // measure the true shortest distance from the touch to that box.
             let nearestX = min(max(point.x, region.bounds.minX), region.bounds.maxX)
             let nearestY = min(max(point.y, region.bounds.minY), region.bounds.maxY)
             let dx = nearestX - point.x

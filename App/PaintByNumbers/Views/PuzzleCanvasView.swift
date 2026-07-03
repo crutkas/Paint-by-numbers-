@@ -262,13 +262,14 @@ final class PuzzleImageView: UIView {
     /// Color index whose unfilled regions should be tinted a very light grey
     /// as a hint to the player. `nil` disables the hint.
     private var highlightedColorIndex: Int?
-    private var lastSwipedRegionId: Int?
     /// Most recent pan sample location (in this view's coordinate space). We
     /// keep it so a fast swipe can be interpolated between callbacks — the
     /// pan recognizer only fires at display-refresh rate, so without
     /// interpolation a finger moving across ~5 cells per frame would have
     /// cells in the middle of each step silently skipped.
     private var lastSwipedPoint: CGPoint?
+    /// Regions already emitted during the current swipe so the finger can move
+    /// around inside one painted area without re-delivering it every frame.
     private var swipedRegionIds: Set<Int> = []
     private var largeBrushEnabled = false
     var onTapRegions: ([Int]) -> Void = { _ in }
@@ -308,7 +309,7 @@ final class PuzzleImageView: UIView {
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        deliverRegion(atPoint: recognizer.location(in: self))
+        deliverRegionIds(atPoint: recognizer.location(in: self))
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -376,11 +377,16 @@ final class PuzzleImageView: UIView {
             y: Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
         )
         let brushRadius: Int = {
-            guard largeBrush else { return 0 }
+            guard largeBrushEnabled else { return 0 }
             switch puzzle.strategy {
             case .squareGrid(let cellSize):
+                // For square grids, cover the tapped cell plus immediate
+                // neighbors so the large brush feels bigger without painting
+                // a huge chunk of the board at once.
                 return max(1, cellSize / 2 + 1)
             case .freeformRegions:
+                // Freeform regions can be irregular, so use a small fixed
+                // radius that catches nearby blobs without leaping too far.
                 return 6
             }
         }()
