@@ -88,73 +88,73 @@ final class ShareViewController: UIViewController {
             self?.open(url: openURL)
             self?.complete()
         }
+    }
 
-        private func validatedPNG(from item: NSSecureCoding?) throws -> Data {
-            let image: UIImage
-            if let suppliedImage = item as? UIImage {
-                image = suppliedImage
-            } else {
-                let data: Data
-                if let url = item as? URL {
-                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-                    guard values.isRegularFile == true else { throw ShareError.invalidImage }
-                    guard (values.fileSize ?? Self.maximumFileBytes + 1) <= Self.maximumFileBytes else {
-                        throw ShareError.fileTooLarge
-                    }
-                    data = try Data(contentsOf: url, options: .mappedIfSafe)
-                } else if let suppliedData = item as? Data {
-                    data = suppliedData
-                } else {
-                    throw ShareError.invalidImage
+    private func validatedPNG(from item: NSSecureCoding?) throws -> Data {
+        let image: UIImage
+        if let suppliedImage = item as? UIImage {
+            image = suppliedImage
+        } else {
+            let data: Data
+            if let url = item as? URL {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true else { throw ShareError.invalidImage }
+                guard (values.fileSize ?? Self.maximumFileBytes + 1) <= Self.maximumFileBytes else {
+                    throw ShareError.fileTooLarge
                 }
-                guard data.count <= Self.maximumFileBytes else { throw ShareError.fileTooLarge }
-                try validateEncodedDimensions(data)
-                guard let decoded = UIImage(data: data) else { throw ShareError.invalidImage }
-                image = decoded
-            }
-
-            guard let cgImage = image.cgImage else { throw ShareError.invalidImage }
-            try validateDimensions(width: cgImage.width, height: cgImage.height)
-            guard let pngData = image.pngData(), pngData.count <= Self.maximumFileBytes else {
-                throw ShareError.fileTooLarge
-            }
-            return pngData
-        }
-
-        private func validateEncodedDimensions(_ data: Data) throws {
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                  let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+                data = try Data(contentsOf: url, options: .mappedIfSafe)
+            } else if let suppliedData = item as? Data {
+                data = suppliedData
+            } else {
                 throw ShareError.invalidImage
             }
-            try validateDimensions(width: width, height: height)
+            guard data.count <= Self.maximumFileBytes else { throw ShareError.fileTooLarge }
+            try validateEncodedDimensions(data)
+            guard let decoded = UIImage(data: data) else { throw ShareError.invalidImage }
+            image = decoded
         }
 
-        private func validateDimensions(width: Int, height: Int) throws {
-            let pixels = width.multipliedReportingOverflow(by: height)
-            guard width > 0, height > 0,
-                  width <= Self.maximumDimension, height <= Self.maximumDimension,
-                  !pixels.overflow, pixels.partialValue <= Self.maximumPixels else {
-                throw ShareError.dimensionsTooLarge
-            }
+        guard let cgImage = image.cgImage else { throw ShareError.invalidImage }
+        try validateDimensions(width: cgImage.width, height: cgImage.height)
+        guard let pngData = image.pngData(), pngData.count <= Self.maximumFileBytes else {
+            throw ShareError.fileTooLarge
         }
+        return pngData
+    }
 
-        /// Prevent failed or never-opened handoffs from accumulating indefinitely.
-        private func removeAbandonedHandoffs(in inbox: URL) throws {
-            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-            let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey]
-            let files = try FileManager.default.contentsOfDirectory(
-                at: inbox,
-                includingPropertiesForKeys: Array(keys),
-                options: [.skipsHiddenFiles]
-            )
-            for file in files where ShareImport.isSafeFilename(file.lastPathComponent) {
-                let values = try file.resourceValues(forKeys: keys)
-                guard values.isRegularFile == true, values.isSymbolicLink != true,
-                      let modified = values.contentModificationDate, modified < cutoff else { continue }
-                try FileManager.default.removeItem(at: file)
-            }
+    private func validateEncodedDimensions(_ data: Data) throws {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            throw ShareError.invalidImage
+        }
+        try validateDimensions(width: width, height: height)
+    }
+
+    private func validateDimensions(width: Int, height: Int) throws {
+        let pixels = width.multipliedReportingOverflow(by: height)
+        guard width > 0, height > 0,
+              width <= Self.maximumDimension, height <= Self.maximumDimension,
+              !pixels.overflow, pixels.partialValue <= Self.maximumPixels else {
+            throw ShareError.dimensionsTooLarge
+        }
+    }
+
+    /// Prevent failed or never-opened handoffs from accumulating indefinitely.
+    private func removeAbandonedHandoffs(in inbox: URL) throws {
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey]
+        let files = try FileManager.default.contentsOfDirectory(
+            at: inbox,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        )
+        for file in files where ShareImport.isSafeFilename(file.lastPathComponent) {
+            let values = try file.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true, values.isSymbolicLink != true,
+                  let modified = values.contentModificationDate, modified < cutoff else { continue }
+            try FileManager.default.removeItem(at: file)
         }
     }
 
@@ -182,21 +182,21 @@ final class ShareViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.complete()
             }
+        }
+    }
 
-            private func failOnMain(_ message: String) {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    let alert = UIAlertController(
-                        title: "Couldn’t import image",
-                        message: message,
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-                        self?.complete()
-                    })
-                    self.present(alert, animated: true)
-                }
-            }
+    private func failOnMain(_ message: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: "Couldn’t import image",
+                message: message,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                self?.complete()
+            })
+            self.present(alert, animated: true)
         }
     }
 

@@ -23,7 +23,7 @@ puzzles via the bundled Share Extension.
 │   ├── PuzzleMetadata.swift        Codable models + progress helpers
 │   ├── PuzzleStore.swift           Disk-backed metadata + progress store
 │   └── ShareImport.swift           URL scheme + App-Group handoff payload
-├── Tests/PBNCoreTests/         XCTest suite (65 tests) — runs on Linux
+├── Tests/PBNCoreTests/         XCTest suite (69 tests) — runs on Linux
 ├── AppTests/                   iOS integration tests for imports and rendering
 ├── App/PaintByNumbers/         SwiftUI iOS/iPadOS app
 │   ├── PaintByNumbersApp.swift     @main entry
@@ -67,7 +67,7 @@ Select the **PaintByNumbers** scheme and an iPhone/iPad simulator, then ⌘R.
 swift test --parallel
 ```
 
-This runs the entire `PBNCoreTests` suite (65 tests) against the PBN engine,
+This runs the entire `PBNCoreTests` suite (69 tests) against the PBN engine,
 covering color math, image scaling, k-means quantization determinism and edge
 cases, connected-components labeling and region merging, the full puzzle
 generator, progress/completion calculation, on-disk puzzle store round-trips,

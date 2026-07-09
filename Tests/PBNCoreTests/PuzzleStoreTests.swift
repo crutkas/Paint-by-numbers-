@@ -36,6 +36,17 @@ final class PuzzleStoreTests: XCTestCase {
         )
     }
 
+    private func saveCompletePuzzle(_ metadata: PuzzleMetadata, to store: PuzzleStore) throws {
+        try store.saveMetadata(metadata)
+        let directory = store.puzzleDirectory(id: metadata.id)
+        try Data("source".utf8).write(
+            to: directory.appendingPathComponent(metadata.sourceImageFilename)
+        )
+        try Data("region map".utf8).write(
+            to: directory.appendingPathComponent(metadata.regionMapFilename)
+        )
+    }
+
     // Metadata must survive disk persistence without losing puzzle identity or rendering inputs.
     func testSaveAndLoadMetadataRoundTrip() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
@@ -100,11 +111,11 @@ final class PuzzleStoreTests: XCTestCase {
 
         var older = makeMetadata()
         older.lastEditedAt = Date(timeIntervalSince1970: 1_000_000_000)
-        try store.saveMetadata(older)
+        try saveCompletePuzzle(older, to: store)
 
         var newer = makeMetadata()
         newer.lastEditedAt = Date(timeIntervalSince1970: 2_000_000_000)
-        try store.saveMetadata(newer)
+        try saveCompletePuzzle(newer, to: store)
 
         let all = try store.listPuzzles()
         XCTAssertEqual(all.count, 2)
@@ -169,7 +180,7 @@ final class PuzzleStoreTests: XCTestCase {
     func testListPuzzlesReportsQuarantinedRecords() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
         let healthy = makeMetadata()
-        try store.saveMetadata(healthy)
+        try saveCompletePuzzle(healthy, to: store)
         let damagedId = UUID()
         let damaged = try store.createPuzzleDirectory(id: damagedId)
         try Data("broken".utf8).write(to: damaged.appendingPathComponent("metadata.json"))
@@ -205,6 +216,84 @@ final class PuzzleStoreTests: XCTestCase {
             regionMapFilename: original.regionMapFilename
         )
         try store.saveMetadata(invalid)
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertTrue(result.puzzles.isEmpty)
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
+    }
+
+    // Persisted source dimensions are allocation inputs during export, so
+    // hostile metadata must not be able to request unbounded decoded memory.
+    func testListPuzzlesQuarantinesUnsafeSourceDimensions() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let original = makeMetadata()
+        let invalid = PuzzleMetadata(
+            id: original.id,
+            title: original.title,
+            difficulty: original.difficulty,
+            strategy: original.strategy,
+            workingWidth: original.workingWidth,
+            workingHeight: original.workingHeight,
+            sourcePixelWidth: 12_001,
+            sourcePixelHeight: 1,
+            palette: original.palette,
+            regions: original.regions,
+            sourceImageFilename: original.sourceImageFilename,
+            regionMapFilename: original.regionMapFilename
+        )
+        try store.saveMetadata(invalid)
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertTrue(result.puzzles.isEmpty)
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
+    }
+
+    // An interrupted save can leave source data without metadata; isolating
+    // that folder preserves recovery evidence without exposing a broken tile.
+    func testListPuzzlesQuarantinesInterruptedSave() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let id = UUID()
+        let directory = try store.createPuzzleDirectory(id: id)
+        try Data("recoverable image data".utf8).write(
+            to: directory.appendingPathComponent("source.png")
+        )
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertTrue(result.puzzles.isEmpty)
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathExtension("corrupt").path))
+    }
+
+    // Folder identity is the storage boundary used for load and delete; a
+    // mismatched metadata ID must not redirect those operations to another puzzle.
+    func testListPuzzlesQuarantinesMismatchedFolderIdentity() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let metadata = makeMetadata()
+        let wrongDirectory = try store.createPuzzleDirectory(id: UUID())
+        let encoded = try JSONEncoder().encode(metadata)
+        try encoded.write(to: wrongDirectory.appendingPathComponent("metadata.json"))
+        try Data("source".utf8).write(
+            to: wrongDirectory.appendingPathComponent(metadata.sourceImageFilename)
+        )
+        try Data("map".utf8).write(
+            to: wrongDirectory.appendingPathComponent(metadata.regionMapFilename)
+        )
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertTrue(result.puzzles.isEmpty)
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
+    }
+
+    // A tile without both source and exact-map assets cannot render or accept
+    // taps, so it must be isolated before it reaches the library UI.
+    func testListPuzzlesQuarantinesMissingRequiredAssets() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let metadata = makeMetadata()
+        try store.saveMetadata(metadata)
 
         let result = try store.listPuzzlesWithRecovery()
 

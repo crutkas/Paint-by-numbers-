@@ -96,6 +96,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test
 
+          xcodebuild \
+            -project PaintByNumbers.xcodeproj \
+            -scheme PaintByNumbers \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
       - name: Validate Release configuration
         run: |
           set -o pipefail

@@ -98,19 +98,20 @@ final class PuzzleLibrary: ObservableObject {
             }.value
         } catch {
             userFacingError = "The image was imported, but its temporary files could not be removed."
-        retryAction = { [weak self] in
-            Task {
-                do {
-                    try await Task.detached {
-                        if FileManager.default.fileExists(atPath: metaURL.path) {
-                            try FileManager.default.removeItem(at: metaURL)
-                        }
-                        if FileManager.default.fileExists(atPath: imageURL.path) {
-                            try FileManager.default.removeItem(at: imageURL)
-                        }
-                    }.value
-                } catch {
-                    self?.userFacingError = "Temporary files still could not be removed. \(error.localizedDescription)"
+            retryAction = { [weak self] in
+                Task {
+                    do {
+                        try await Task.detached {
+                            if FileManager.default.fileExists(atPath: metaURL.path) {
+                                try FileManager.default.removeItem(at: metaURL)
+                            }
+                            if FileManager.default.fileExists(atPath: imageURL.path) {
+                                try FileManager.default.removeItem(at: imageURL)
+                            }
+                        }.value
+                    } catch {
+                        self?.userFacingError = "Temporary files still could not be removed. \(error.localizedDescription)"
+                    }
                 }
             }
         }
@@ -236,7 +237,17 @@ final class PuzzleLibrary: ObservableObject {
                 try backgroundStore.saveMetadata(metadata)
             }.value
         } catch {
-            userFacingError = "The puzzle could not be saved. \(error.localizedDescription)"
+            let saveError = error
+            var cleanupMessage = ""
+            let root = store.rootDirectory
+            do {
+                try await Task.detached {
+                    try PuzzleStore(rootDirectory: root).delete(id: metadata.id)
+                }.value
+            } catch {
+                cleanupMessage = " Its partial files were preserved for recovery."
+            }
+            userFacingError = "The puzzle could not be saved. \(saveError.localizedDescription)\(cleanupMessage)"
             retryAction = nil
             await reload()
             return nil
@@ -349,18 +360,18 @@ final class PuzzleLibrary: ObservableObject {
                 userFacingError = "The puzzle could not be deleted. \(error.localizedDescription)"
                 retryAction = { [weak self] in self?.deletePuzzle(id) }
             }
+        }
+    }
 
-            nonisolated private static func validateInboxFile(_ file: URL, inside inbox: URL) throws {
-                let resolvedInbox = inbox.resolvingSymlinksInPath().standardizedFileURL
-                let resolvedFile = file.resolvingSymlinksInPath().standardizedFileURL
-                guard resolvedFile.deletingLastPathComponent() == resolvedInbox else {
-                    throw CocoaError(.fileReadNoPermission)
-                }
-                let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                guard values.isRegularFile == true, values.isSymbolicLink != true else {
-                    throw CocoaError(.fileReadNoPermission)
-                }
-            }
+    private nonisolated static func validateInboxFile(_ file: URL, inside inbox: URL) throws {
+        let resolvedInbox = inbox.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedFile = file.resolvingSymlinksInPath().standardizedFileURL
+        guard resolvedFile.deletingLastPathComponent() == resolvedInbox else {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileReadNoPermission)
         }
     }
 }

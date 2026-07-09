@@ -270,6 +270,13 @@ final class PuzzleImageView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
+            setNeedsDisplay()
+        }
+    }
+
     func configure(puzzle: PuzzleMetadata, regionIds: [Int]) {
         self.puzzle = puzzle
         self.regionIds = regionIds
@@ -438,7 +445,11 @@ final class PuzzleImageView: UIView {
             fontMetrics.minimumSize,
             min(fontMetrics.maximumSize, cellPoints * fontMetrics.cellScale)
         )
-        let numberFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let baseFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let numberFont = UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: baseFont,
+            maximumPointSize: fontMetrics.maximumSize * 1.5
+        )
         let numberAttrs: [NSAttributedString.Key: Any] = [
             .font: numberFont,
             .foregroundColor: UIColor.label

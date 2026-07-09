@@ -126,23 +126,42 @@ public final class PuzzleStore {
         var metadatas: [PuzzleMetadata] = []
         var quarantinedCount = 0
         for dir in contents {
-            let metaURL = dir.appendingPathComponent("metadata.json")
-            guard fileManager.fileExists(atPath: metaURL.path) else { continue }
-            let data = try Data(contentsOf: metaURL)
+            if dir.pathExtension == "corrupt" || dir.lastPathComponent.contains(".corrupt-") {
+                continue
+            }
+            let directoryValues: URLResourceValues
             do {
+                directoryValues = try dir.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            } catch {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
+            guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true else {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
+            let metaURL = dir.appendingPathComponent("metadata.json")
+            guard fileManager.fileExists(atPath: metaURL.path) else {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
+            do {
+                let data = try Data(contentsOf: metaURL)
                 let meta = try decoder.decode(PuzzleMetadata.self, from: data)
-                guard meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion, isValid(meta) else {
+                guard UUID(uuidString: dir.lastPathComponent) == meta.id,
+                      meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion,
+                      isValid(meta),
+                      isRegularFile(meta.sourceImageFilename, in: dir),
+                      isRegularFile(meta.regionMapFilename, in: dir),
+                      meta.outlineFilename.map({ isRegularFile($0, in: dir) }) ?? true else {
                     throw StoreError.invalidMetadata(meta.id)
                 }
                 metadatas.append(meta)
             } catch {
-                var quarantine = dir.appendingPathExtension("corrupt")
-                if fileManager.fileExists(atPath: quarantine.path) {
-                    quarantine = dir
-                        .deletingLastPathComponent()
-                        .appendingPathComponent("\(dir.lastPathComponent).corrupt-\(UUID().uuidString)")
-                }
-                try fileManager.moveItem(at: dir, to: quarantine)
+                try quarantine(dir)
                 quarantinedCount += 1
             }
         }
@@ -150,9 +169,39 @@ public final class PuzzleStore {
         return ListResult(puzzles: metadatas, quarantinedPuzzleCount: quarantinedCount)
     }
 
+    private func quarantine(_ directory: URL) throws {
+        var destination = directory.appendingPathExtension("corrupt")
+        if fileManager.fileExists(atPath: destination.path) {
+            destination = directory
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(directory.lastPathComponent).corrupt-\(UUID().uuidString)")
+        }
+        try fileManager.moveItem(at: directory, to: destination)
+    }
+
+    private func isRegularFile(_ filename: String, in directory: URL) -> Bool {
+        do {
+            let values = try directory
+                .appendingPathComponent(filename)
+                .resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            return values.isRegularFile == true && values.isSymbolicLink != true
+        } catch {
+            return false
+        }
+    }
+
     private func isValid(_ metadata: PuzzleMetadata) -> Bool {
+        let workingPixels = metadata.workingWidth.multipliedReportingOverflow(
+            by: metadata.workingHeight
+        )
+        let sourcePixels = metadata.sourcePixelWidth.multipliedReportingOverflow(
+            by: metadata.sourcePixelHeight
+        )
         guard metadata.workingWidth > 0, metadata.workingHeight > 0,
+              !workingPixels.overflow, workingPixels.partialValue <= 40_000_000,
               metadata.sourcePixelWidth > 0, metadata.sourcePixelHeight > 0,
+              metadata.sourcePixelWidth <= 12_000, metadata.sourcePixelHeight <= 12_000,
+              !sourcePixels.overflow, sourcePixels.partialValue <= 40_000_000,
               ShareImport.isSafeFilename(metadata.sourceImageFilename),
               ShareImport.isSafeFilename(metadata.regionMapFilename),
               metadata.outlineFilename.map(ShareImport.isSafeFilename) ?? true else {

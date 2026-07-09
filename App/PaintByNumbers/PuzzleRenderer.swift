@@ -7,12 +7,17 @@ enum PuzzleRenderer {
         progress: PuzzleProgress,
         regionIds: [Int]
     ) -> UIImage? {
+        let workingPixelCount = puzzle.workingWidth.multipliedReportingOverflow(
+            by: puzzle.workingHeight
+        )
         guard puzzle.workingWidth > 0, puzzle.workingHeight > 0,
               puzzle.sourcePixelWidth > 0, puzzle.sourcePixelHeight > 0,
-              regionIds.count == puzzle.workingWidth * puzzle.workingHeight else { return nil }
+              !workingPixelCount.overflow,
+              regionIds.count == workingPixelCount.partialValue else { return nil }
     let pixelCount = puzzle.sourcePixelWidth.multipliedReportingOverflow(by: puzzle.sourcePixelHeight)
     let byteCount = pixelCount.partialValue.multipliedReportingOverflow(by: 4)
-    guard !pixelCount.overflow, !byteCount.overflow else { return nil }
+    guard !pixelCount.overflow, pixelCount.partialValue <= ImageImportValidator.maximumPixels,
+          !byteCount.overflow else { return nil }
     let regions = Dictionary(uniqueKeysWithValues: puzzle.regions.map { ($0.id, $0) })
     var bytes = [UInt8](repeating: 255, count: byteCount.partialValue)
     for outputY in 0..<puzzle.sourcePixelHeight {
@@ -38,8 +43,8 @@ enum PuzzleRenderer {
         }
     }
     let bytesPerRow = puzzle.sourcePixelWidth * 4
-    let context = bytes.withUnsafeMutableBytes { buffer in
-        CGContext(
+    let image = bytes.withUnsafeMutableBytes { buffer -> CGImage? in
+        guard let context = CGContext(
             data: buffer.baseAddress,
             width: puzzle.sourcePixelWidth,
             height: puzzle.sourcePixelHeight,
@@ -47,8 +52,10 @@ enum PuzzleRenderer {
             bytesPerRow: bytesPerRow,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )
+        ) else { return nil }
+        return context.makeImage()
     }
-    guard let image = context?.makeImage() else { return nil }
+    guard let image else { return nil }
     return UIImage(cgImage: image, scale: 1, orientation: .up)
+    }
 }
