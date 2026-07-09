@@ -103,4 +103,18 @@ final class PuzzleProgressTests: XCTestCase {
         )
         XCTAssertEqual(remaining1, [1])
     }
+
+    // A damaged progress file may contain plausible but nonexistent IDs; they
+    // must not inflate completion or unlock the completion celebration.
+    func testUnknownRegionIdsDoNotCountTowardCompletion() {
+        let puzzle = makePuzzle(regionCount: 2)
+        let progress = PuzzleProgress(puzzleId: puzzle.id, filledRegionIds: [999, 1])
+
+        XCTAssertEqual(PuzzleProgressCalculator.completion(progress: progress, puzzle: puzzle), 0.5)
+        XCTAssertFalse(PuzzleProgressCalculator.isComplete(progress: progress, puzzle: puzzle))
+        XCTAssertEqual(
+            progress.sanitized(validRegionIds: Set(puzzle.regions.map(\.id))).filledRegionIds,
+            [1]
+        )
+    }
 }

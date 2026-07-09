@@ -6,15 +6,14 @@ import Foundation
 /// - `metadata.json`  — `PuzzleMetadata`
 /// - `progress.json`  — `PuzzleProgress`
 /// - `source.png`     — original image (filename comes from metadata)
-/// - `regionMap.png`  — region-id map (filename comes from metadata)
+/// - `regionMap.pbnr` — lossless UInt32 region-id map
 /// - `outline.png`    — optional outline overlay
 ///
-/// This layout mirrors the plan's "large blobs as files, metadata in
-/// SwiftData" goal. The store itself is pure-Foundation so it tests on Linux;
-/// on-device the iOS app wraps it with SwiftData for indexing + iCloud sync.
+/// The store is pure Foundation so it can be tested on Linux.
 public final class PuzzleStore {
     public enum StoreError: Error {
         case puzzleNotFound(UUID)
+        case unsupportedSchema(Int)
     }
 
     public let rootDirectory: URL
@@ -63,7 +62,11 @@ public final class PuzzleStore {
             throw StoreError.puzzleNotFound(id)
         }
         let data = try Data(contentsOf: url)
-        return try decoder.decode(PuzzleMetadata.self, from: data)
+        let metadata = try decoder.decode(PuzzleMetadata.self, from: data)
+        guard metadata.schemaVersion <= PuzzleMetadata.currentSchemaVersion else {
+            throw StoreError.unsupportedSchema(metadata.schemaVersion)
+        }
+        return metadata
     }
 
     public func saveProgress(_ progress: PuzzleProgress) throws {
@@ -80,7 +83,11 @@ public final class PuzzleStore {
             return PuzzleProgress(puzzleId: id)
         }
         let data = try Data(contentsOf: url)
-        return try decoder.decode(PuzzleProgress.self, from: data)
+        let progress = try decoder.decode(PuzzleProgress.self, from: data)
+        guard progress.schemaVersion <= PuzzleProgress.currentSchemaVersion else {
+            throw StoreError.unsupportedSchema(progress.schemaVersion)
+        }
+        return progress
     }
 
     /// Delete a puzzle and everything associated with it.
@@ -105,8 +112,12 @@ public final class PuzzleStore {
             let metaURL = dir.appendingPathComponent("metadata.json")
             guard fileManager.fileExists(atPath: metaURL.path) else { continue }
             let data = try Data(contentsOf: metaURL)
-            if let meta = try? decoder.decode(PuzzleMetadata.self, from: data) {
+            if let meta = try? decoder.decode(PuzzleMetadata.self, from: data),
+               meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion {
                 metadatas.append(meta)
+            } else {
+                let quarantine = dir.appendingPathExtension("corrupt")
+                try? fileManager.moveItem(at: dir, to: quarantine)
             }
         }
         metadatas.sort { $0.lastEditedAt > $1.lastEditedAt }

@@ -1,6 +1,7 @@
 import UIKit
 import UniformTypeIdentifiers
 import PBNCore
+import ImageIO
 
 /// Share Extension entry point. Accepts exactly one image, writes it into the
 /// App Group inbox, and opens the host app via the `paintbynumbers://import`
@@ -39,7 +40,14 @@ final class ShareViewController: UIViewController {
                 if let d = data as? Data { return UIImage(data: d) }
                 return nil
             }()
-            guard let image, let pngData = image.pngData() else {
+            guard let image,
+                  let cgImage = image.cgImage,
+                  cgImage.width <= 12_000,
+                  cgImage.height <= 12_000,
+                  cgImage.width.multipliedReportingOverflow(by: cgImage.height).overflow == false,
+                  cgImage.width * cgImage.height <= 40_000_000,
+                  let pngData = image.pngData(),
+                  pngData.count <= 25 * 1_024 * 1_024 else {
                 self.completeOnMain()
                 return
             }
@@ -49,13 +57,14 @@ final class ShareViewController: UIViewController {
 
     private func persistAndOpen(pngData: Data) {
         guard let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.example.paintbynumbers"
+            forSecurityApplicationGroupIdentifier: AppConfiguration.appGroupIdentifier
         ) else {
             completeOnMain()
             return
         }
         let inbox = container.appendingPathComponent("SharedInbox", isDirectory: true)
         try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        removeAbandonedHandoffs(in: inbox)
 
         // UUID strings match `ShareImport.isValidToken`'s allowlist, so the
         // host app will accept this token when it parses the open-URL.
@@ -70,6 +79,25 @@ final class ShareViewController: UIViewController {
         } catch {
             completeOnMain()
             return
+        }
+
+        /// Prevent failed or never-opened handoffs from accumulating indefinitely.
+        private func removeAbandonedHandoffs(in inbox: URL) {
+            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+            let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: inbox,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsHiddenFiles]
+            ) else { return }
+            for file in files {
+                guard ShareImport.isSafeFilename(file.lastPathComponent),
+                      let values = try? file.resourceValues(forKeys: keys),
+                      values.isRegularFile == true,
+                      let modified = values.contentModificationDate,
+                      modified < cutoff else { continue }
+                try? FileManager.default.removeItem(at: file)
+            }
         }
 
         let openURL = ShareImport.openURL(for: token)

@@ -78,5 +78,25 @@ final class ConnectedComponentsTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(id, 0)
             XCTAssertLessThan(id, r.regions.count)
         }
+
+        // Regression coverage for chained speckles: adjacency and aggregate sizes
+        // must be recalculated after each merge rather than using stale neighbors.
+        func testMergeSmallRegionsRecalculatesChainedMerges() {
+            let input = ConnectedComponents.label(colorIndices: [0, 1, 2, 3, 3, 3], width: 6, height: 1)
+            let result = ConnectedComponents.mergeSmallRegions(input, width: 6, height: 1, minPixelCount: 3)
+
+            XCTAssertTrue(result.regions.allSatisfy { $0.pixelCount >= 3 })
+            XCTAssertEqual(result.regionIds.count, 6)
+        }
+
+        // Equal shared boundaries are common in grid-like art; deterministic tie
+        // breaking keeps generated puzzles stable across runs and platforms.
+        func testMergeSmallRegionsBreaksBoundaryTiesDeterministically() {
+            let input = ConnectedComponents.label(colorIndices: [0, 1, 2], width: 3, height: 1)
+            let first = ConnectedComponents.mergeSmallRegions(input, width: 3, height: 1, minPixelCount: 2)
+            let second = ConnectedComponents.mergeSmallRegions(input, width: 3, height: 1, minPixelCount: 2)
+
+            XCTAssertEqual(first, second)
+        }
     }
 }

@@ -65,6 +65,15 @@ final class ShareImportTests: XCTestCase {
         let url = URL(string: "paintbynumbers://import?token=..%2Fevil")!
         XCTAssertNil(ShareImport.token(from: url))
     }
+
+    // Shared filenames become filesystem path components, so separators and
+    // dot components must be rejected even when an attacker controls metadata.
+    func testSafeFilenameRequiresSingleComponent() {
+        XCTAssertTrue(ShareImport.isSafeFilename("ABC-123.png"))
+        XCTAssertFalse(ShareImport.isSafeFilename("../image.png"))
+        XCTAssertFalse(ShareImport.isSafeFilename("folder/image.png"))
+        XCTAssertFalse(ShareImport.isSafeFilename("folder\\image.png"))
+    }
 }
 
 final class SeededGeneratorTests: XCTestCase {

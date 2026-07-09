@@ -4,7 +4,7 @@
 <dict>
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.com.example.paintbynumbers</string>
+        <string>group.com.crutkas.paintbynumbers</string>
     </array>
 </dict>
 </plist>

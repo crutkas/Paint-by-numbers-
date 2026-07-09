@@ -121,4 +121,40 @@ final class PuzzleStoreTests: XCTestCase {
         let store = PuzzleStore(rootDirectory: tempDir)
         XCTAssertEqual(try store.listPuzzles().count, 0)
     }
+
+    // Existing installs have unversioned metadata without source dimensions;
+    // migration must preserve those puzzles and supply safe export defaults.
+    func testLegacyMetadataMigratesOnLoad() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let metadata = makeMetadata()
+        try store.saveMetadata(metadata)
+        let url = store.puzzleDirectory(id: metadata.id).appendingPathComponent("metadata.json")
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        )
+        object.removeValue(forKey: "schemaVersion")
+        object.removeValue(forKey: "sourcePixelWidth")
+        object.removeValue(forKey: "sourcePixelHeight")
+        try JSONSerialization.data(withJSONObject: object).write(to: url, options: .atomic)
+
+        let migrated = try store.loadMetadata(id: metadata.id)
+        XCTAssertEqual(migrated.schemaVersion, PuzzleMetadata.currentSchemaVersion)
+        XCTAssertEqual(migrated.sourcePixelWidth, metadata.workingWidth)
+        XCTAssertEqual(migrated.sourcePixelHeight, metadata.workingHeight)
+    }
+
+    // One malformed record must not make the entire library unusable; moving
+    // it aside keeps recovery possible while healthy puzzles continue loading.
+    func testListPuzzlesQuarantinesCorruptRecord() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let metadata = makeMetadata()
+        let directory = try store.createPuzzleDirectory(id: metadata.id)
+        try Data("{not-json".utf8).write(
+            to: directory.appendingPathComponent("metadata.json"),
+            options: .atomic
+        )
+
+        XCTAssertTrue(try store.listPuzzles().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathExtension("corrupt").path))
+    }
 }

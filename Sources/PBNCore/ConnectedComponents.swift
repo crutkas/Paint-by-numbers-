@@ -151,40 +151,50 @@ public enum ConnectedComponents {
             return cur
         }
 
-        // Build neighbour maps keyed by region id.
-        var neighbourCounts = [[Int: Int]](repeating: [:], count: input.regions.count)
-        for y in 0..<height {
-            for x in 0..<width {
-                let r = input.regionIds[y * width + x]
-                if x + 1 < width {
-                    let r2 = input.regionIds[y * width + (x + 1)]
-                    if r != r2 {
-                        neighbourCounts[r][r2, default: 0] += 1
-                        neighbourCounts[r2][r, default: 0] += 1
+        // Recompute group sizes and boundaries after every merge. A single
+        // static adjacency pass can otherwise merge a chain of tiny regions
+        // into another still-tiny group or choose a neighbour that no longer
+        // exists. Ties are resolved by root id for deterministic output.
+        while true {
+            var sizes: [Int: Int] = [:]
+            for region in input.regions {
+                sizes[find(region.id), default: 0] += region.pixelCount
+            }
+            guard let smallRoot = sizes
+                .filter({ $0.value < minPixelCount })
+                .sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value < $1.value })
+                .first?.key
+            else { break }
+
+            var boundaries: [Int: Int] = [:]
+            for y in 0..<height {
+                for x in 0..<width {
+                    let root = find(input.regionIds[y * width + x])
+                    guard root == smallRoot else { continue }
+                    if x > 0 {
+                        let other = find(input.regionIds[y * width + x - 1])
+                        if other != root { boundaries[other, default: 0] += 1 }
                     }
-                }
-                if y + 1 < height {
-                    let r2 = input.regionIds[(y + 1) * width + x]
-                    if r != r2 {
-                        neighbourCounts[r][r2, default: 0] += 1
-                        neighbourCounts[r2][r, default: 0] += 1
+                    if x + 1 < width {
+                        let other = find(input.regionIds[y * width + x + 1])
+                        if other != root { boundaries[other, default: 0] += 1 }
+                    }
+                    if y > 0 {
+                        let other = find(input.regionIds[(y - 1) * width + x])
+                        if other != root { boundaries[other, default: 0] += 1 }
+                    }
+                    if y + 1 < height {
+                        let other = find(input.regionIds[(y + 1) * width + x])
+                        if other != root { boundaries[other, default: 0] += 1 }
                     }
                 }
             }
-        }
-
-        // Small regions pick their largest-boundary neighbour and merge into it.
-        let smallRegions = input.regions
-            .filter { $0.pixelCount < minPixelCount }
-            .sorted { $0.pixelCount < $1.pixelCount }
-
-        for region in smallRegions {
-            guard let (bestNeighbour, _) = neighbourCounts[region.id].max(by: { $0.value < $1.value }) else {
-                continue
+            guard let neighbour = boundaries.sorted(by: {
+                $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value
+            }).first?.key else {
+                break
             }
-            let a = find(region.id)
-            let b = find(bestNeighbour)
-            if a != b { parent[a] = b }
+            parent[smallRoot] = neighbour
         }
 
         // Remap region ids and rebuild the region list.

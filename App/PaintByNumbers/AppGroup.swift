@@ -1,9 +1,10 @@
 import Foundation
+import PBNCore
 
 /// Names and helpers for the App Group container shared between the main app
 /// and the Share Extension.
 public enum AppGroup {
-    public static let identifier = "group.com.example.paintbynumbers"
+    public static let identifier = AppConfiguration.appGroupIdentifier
 
     /// Shared container URL. Falls back to Application Support (or, if even
     /// that fails, the temporary directory) so debug builds without App Group
