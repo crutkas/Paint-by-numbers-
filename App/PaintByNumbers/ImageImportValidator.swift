@@ -7,9 +7,9 @@ enum ImageImportValidator {
     // memory use on older supported devices. 25 MB covers normal HEIF/JPEG
     // photos, 12K permits high-resolution panoramas, and 40 MP caps decoded
     // RGBA memory near 160 MB before temporary rendering buffers.
-    static let maximumFileBytes = 25 * 1_024 * 1_024
-    static let maximumDimension = 12_000
-    static let maximumPixels = 40_000_000
+    static let maximumFileBytes = 25 * 1_024 * 1_024 // Typical photos fit without admitting huge payloads.
+    static let maximumDimension = 12_000 // Allows panoramas while bounding allocation width.
+    static let maximumPixels = 40_000_000 // Approximately 160 MB of decoded RGBA pixels.
 
     enum ValidationError: LocalizedError {
         case tooLarge

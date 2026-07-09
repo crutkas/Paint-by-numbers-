@@ -230,6 +230,15 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
 
 /// Owns the rasterized canvas and the region-id hit-test map.
 final class PuzzleImageView: UIView {
+    private struct NumberFontMetrics {
+        let minimumSize: CGFloat
+        let maximumSize: CGFloat
+        let cellScale: CGFloat
+
+        static let standard = NumberFontMetrics(minimumSize: 8, maximumSize: 28, cellScale: 0.35)
+        static let large = NumberFontMetrics(minimumSize: 12, maximumSize: 36, cellScale: 0.55)
+    }
+
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
@@ -379,10 +388,11 @@ final class PuzzleImageView: UIView {
             return 1
         }()
         let cellPoints = baseCellPixels * scaleX
-        let minimumFontSize: CGFloat = bigNumbers ? 12 : 8
-        let maximumFontSize: CGFloat = bigNumbers ? 36 : 28
-        let fontScale: CGFloat = bigNumbers ? 0.55 : 0.35
-        let fontSize = max(minimumFontSize, min(maximumFontSize, cellPoints * fontScale))
+        let fontMetrics = bigNumbers ? NumberFontMetrics.large : .standard
+        let fontSize = max(
+            fontMetrics.minimumSize,
+            min(fontMetrics.maximumSize, cellPoints * fontMetrics.cellScale)
+        )
         let numberFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         let numberAttrs: [NSAttributedString.Key: Any] = [
             .font: numberFont,
