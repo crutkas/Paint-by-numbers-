@@ -379,8 +379,10 @@ final class PuzzleImageView: UIView {
             return 1
         }()
         let cellPoints = baseCellPixels * scaleX
+        let minimumFontSize: CGFloat = bigNumbers ? 12 : 8
+        let maximumFontSize: CGFloat = bigNumbers ? 36 : 28
         let fontScale: CGFloat = bigNumbers ? 0.55 : 0.35
-        let fontSize = max(bigNumbers ? 12 : 8, min(bigNumbers ? 36 : 28, cellPoints * fontScale))
+        let fontSize = max(minimumFontSize, min(maximumFontSize, cellPoints * fontScale))
         let numberFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         let numberAttrs: [NSAttributedString.Key: Any] = [
             .font: numberFont,

@@ -3,6 +3,10 @@ import ImageIO
 import UIKit
 
 enum ImageImportValidator {
+    // Limits are checked before decoding to bound both hostile inputs and
+    // memory use on older supported devices. 25 MB covers normal HEIF/JPEG
+    // photos, 12K permits high-resolution panoramas, and 40 MP caps decoded
+    // RGBA memory near 160 MB before temporary rendering buffers.
     static let maximumFileBytes = 25 * 1_024 * 1_024
     static let maximumDimension = 12_000
     static let maximumPixels = 40_000_000
