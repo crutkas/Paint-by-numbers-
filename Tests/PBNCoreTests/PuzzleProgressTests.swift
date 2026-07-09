@@ -26,6 +26,7 @@ final class PuzzleProgressTests: XCTestCase {
         )
     }
 
+    // A newly opened puzzle must start at zero and never trigger completion.
     func testCompletionIsZeroForNewProgress() {
         let puzzle = makePuzzle(regionCount: 10)
         let progress = PuzzleProgress(puzzleId: puzzle.id)
@@ -36,6 +37,7 @@ final class PuzzleProgressTests: XCTestCase {
         XCTAssertFalse(PuzzleProgressCalculator.isComplete(progress: progress, puzzle: puzzle))
     }
 
+    // Filling every valid region is the sole condition that should complete a puzzle.
     func testCompletionIsOneWhenAllRegionsFilled() {
         let puzzle = makePuzzle(regionCount: 4)
         var progress = PuzzleProgress(puzzleId: puzzle.id)
@@ -47,6 +49,7 @@ final class PuzzleProgressTests: XCTestCase {
         XCTAssertTrue(PuzzleProgressCalculator.isComplete(progress: progress, puzzle: puzzle))
     }
 
+    // Corrupt extra IDs must not produce percentages above the user-facing range.
     func testCompletionIsClampedForExtraRegionIds() {
         let puzzle = makePuzzle(regionCount: 3)
         var progress = PuzzleProgress(puzzleId: puzzle.id)
@@ -55,6 +58,7 @@ final class PuzzleProgressTests: XCTestCase {
         XCTAssertLessThanOrEqual(c, 1.0)
     }
 
+    // Empty malformed puzzles must avoid NaN and must not count as completed.
     func testCompletionHandlesEmptyPuzzle() {
         let puzzle = makePuzzle(regionCount: 0)
         let progress = PuzzleProgress(puzzleId: puzzle.id)
@@ -65,6 +69,7 @@ final class PuzzleProgressTests: XCTestCase {
         XCTAssertFalse(PuzzleProgressCalculator.isComplete(progress: progress, puzzle: puzzle))
     }
 
+    // Palette counts and hints depend on excluding filled regions of only the requested color.
     func testRemainingRegionIdsFiltersFilledAndColor() {
         let palette = ColorPalette(colors: [
             RGBColor(r: 0, g: 0, b: 0),
@@ -115,6 +120,20 @@ final class PuzzleProgressTests: XCTestCase {
         XCTAssertEqual(
             progress.sanitized(validRegionIds: Set(puzzle.regions.map(\.id))).filledRegionIds,
             [1]
+        )
+    }
+
+    // A progress file copied into the wrong puzzle folder must never unlock or
+    // alter that puzzle, even when its numeric region IDs happen to overlap.
+    func testProgressForDifferentPuzzleIsIgnored() {
+        let puzzle = makePuzzle(regionCount: 1)
+        let foreign = PuzzleProgress(puzzleId: UUID(), filledRegionIds: [0])
+
+        XCTAssertEqual(PuzzleProgressCalculator.completion(progress: foreign, puzzle: puzzle), 0)
+        XCTAssertFalse(PuzzleProgressCalculator.isComplete(progress: foreign, puzzle: puzzle))
+        XCTAssertEqual(
+            PuzzleProgressCalculator.remainingRegionIds(forColor: 0, puzzle: puzzle, progress: foreign),
+            [0]
         )
     }
 }

@@ -23,7 +23,7 @@ puzzles via the bundled Share Extension.
 │   ├── PuzzleMetadata.swift        Codable models + progress helpers
 │   ├── PuzzleStore.swift           Disk-backed metadata + progress store
 │   └── ShareImport.swift           URL scheme + App-Group handoff payload
-├── Tests/PBNCoreTests/         XCTest suite (62 tests) — runs on Linux
+├── Tests/PBNCoreTests/         XCTest suite (65 tests) — runs on Linux
 ├── AppTests/                   iOS integration tests for imports and rendering
 ├── App/PaintByNumbers/         SwiftUI iOS/iPadOS app
 │   ├── PaintByNumbersApp.swift     @main entry
@@ -67,7 +67,7 @@ Select the **PaintByNumbers** scheme and an iPhone/iPad simulator, then ⌘R.
 swift test --parallel
 ```
 
-This runs the entire `PBNCoreTests` suite (62 tests) against the PBN engine,
+This runs the entire `PBNCoreTests` suite (65 tests) against the PBN engine,
 covering color math, image scaling, k-means quantization determinism and edge
 cases, connected-components labeling and region merging, the full puzzle
 generator, progress/completion calculation, on-disk puzzle store round-trips,
@@ -132,6 +132,14 @@ Metadata and progress JSON include a schema version. Older unversioned records
 are migrated while decoding; unsupported or malformed puzzle folders are
 quarantined with a `.corrupt` suffix so the rest of the library remains usable.
 Puzzle images, exact region maps, and progress remain local to the app group.
+
+## Current limitations
+
+- Storage is local to the device; there is no iCloud or cross-device sync.
+- Completion exports use the original image's pixel dimensions, but render the
+  generated puzzle's working-resolution region map with nearest-neighbor edges.
+- Damaged puzzle folders are preserved with a `.corrupt` suffix for recovery,
+  but the app does not yet provide an in-app repair or restore browser.
 
 ## License
 

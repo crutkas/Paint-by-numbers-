@@ -36,6 +36,7 @@ final class PuzzleStoreTests: XCTestCase {
         )
     }
 
+    // Metadata must survive disk persistence without losing puzzle identity or rendering inputs.
     func testSaveAndLoadMetadataRoundTrip() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
         let original = makeMetadata()
@@ -66,11 +67,13 @@ final class PuzzleStoreTests: XCTestCase {
         )
     }
 
+    // Missing puzzle IDs must be distinguishable from empty valid records for actionable errors.
     func testLoadMetadataForMissingIdThrows() {
         let store = PuzzleStore(rootDirectory: tempDir)
         XCTAssertThrowsError(try store.loadMetadata(id: UUID()))
     }
 
+    // Progress defaults and saved painting state must both round-trip across app launches.
     func testProgressRoundTripAndDefault() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
         let meta = makeMetadata()
@@ -91,6 +94,7 @@ final class PuzzleStoreTests: XCTestCase {
         XCTAssertEqual(loaded.lastEditedAt.timeIntervalSince1970, 1_700_000_000, accuracy: 0.001)
     }
 
+    // Library ordering must surface the puzzle edited most recently.
     func testListPuzzlesReturnsNewestFirst() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
 
@@ -108,6 +112,7 @@ final class PuzzleStoreTests: XCTestCase {
         XCTAssertEqual(all.last?.id, older.id)
     }
 
+    // Deletion must remove every artifact so private images are not left behind.
     func testDeleteRemovesPuzzleFolder() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
         let meta = makeMetadata()
@@ -117,6 +122,7 @@ final class PuzzleStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.puzzleDirectory(id: meta.id).path))
     }
 
+    // First launch has no storage root and must still present an empty usable library.
     func testListPuzzlesReturnsEmptyWhenRootMissing() throws {
         let store = PuzzleStore(rootDirectory: tempDir)
         XCTAssertEqual(try store.listPuzzles().count, 0)
@@ -156,5 +162,53 @@ final class PuzzleStoreTests: XCTestCase {
 
         XCTAssertTrue(try store.listPuzzles().isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathExtension("corrupt").path))
+    }
+
+    // Recovery must be visible to the UI while healthy puzzles remain usable;
+    // returning a count prevents corruption from being silently hidden.
+    func testListPuzzlesReportsQuarantinedRecords() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let healthy = makeMetadata()
+        try store.saveMetadata(healthy)
+        let damagedId = UUID()
+        let damaged = try store.createPuzzleDirectory(id: damagedId)
+        try Data("broken".utf8).write(to: damaged.appendingPathComponent("metadata.json"))
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertEqual(result.puzzles.map(\.id), [healthy.id])
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
+    }
+
+    // Duplicate region IDs make completion and exact-map lookup ambiguous, so
+    // malformed metadata must be isolated rather than entering the library.
+    func testListPuzzlesQuarantinesDuplicateRegionIds() throws {
+        let store = PuzzleStore(rootDirectory: tempDir)
+        let original = makeMetadata()
+        let duplicate = PuzzleRegion(
+            id: 0,
+            colorIndex: 0,
+            pixelCount: 1,
+            bounds: PixelRect(minX: 1, minY: 1, maxX: 1, maxY: 1),
+            centroid: PixelPoint(x: 1, y: 1)
+        )
+        let invalid = PuzzleMetadata(
+            id: original.id,
+            title: original.title,
+            difficulty: original.difficulty,
+            strategy: original.strategy,
+            workingWidth: original.workingWidth,
+            workingHeight: original.workingHeight,
+            palette: original.palette,
+            regions: original.regions + [duplicate],
+            sourceImageFilename: original.sourceImageFilename,
+            regionMapFilename: original.regionMapFilename
+        )
+        try store.saveMetadata(invalid)
+
+        let result = try store.listPuzzlesWithRecovery()
+
+        XCTAssertTrue(result.puzzles.isEmpty)
+        XCTAssertEqual(result.quarantinedPuzzleCount, 1)
     }
 }

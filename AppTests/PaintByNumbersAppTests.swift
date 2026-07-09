@@ -41,6 +41,10 @@ final class PaintByNumbersAppTests: XCTestCase {
 
         XCTAssertEqual(image.cgImage?.width, 20)
         XCTAssertEqual(image.cgImage?.height, 10)
+        XCTAssertEqual(rgbaPixel(in: image, x: 2, y: 2), [255, 0, 0, 255])
+        XCTAssertEqual(rgbaPixel(in: image, x: 15, y: 2), [255, 255, 255, 255])
+        XCTAssertEqual(rgbaPixel(in: image, x: 2, y: 8), [255, 255, 255, 255])
+        XCTAssertEqual(rgbaPixel(in: image, x: 15, y: 8), [255, 0, 0, 255])
     }
 
     // Square-grid export uses the same exact renderer as freeform output; this
@@ -131,13 +135,38 @@ final class PaintByNumbersAppTests: XCTestCase {
         XCTAssertEqual(AppConfiguration.appGroupIdentifier, "group.com.crutkas.paintbynumbers")
     }
 
-    // VoiceOver users cannot infer a custom-drawn canvas from pixels, so the
-    // UIKit surface must expose a meaningful label and interaction guidance.
-    func testCanvasExposesVoiceOverDescription() {
-        let view = PuzzleImageView()
+    // VoiceOver users need actionable regions, not one opaque canvas element;
+    // activating a region must use the same painting callback as touch input.
+    func testCanvasExposesAccessibleRegionActions() throws {
+        let region = PuzzleRegion(
+            id: 7, colorIndex: 0, pixelCount: 1,
+            bounds: PixelRect(minX: 0, minY: 0, maxX: 0, maxY: 0),
+            centroid: PixelPoint(x: 0, y: 0)
+        )
+        let puzzle = PuzzleMetadata(
+            title: "Accessible", difficulty: .easy, strategy: .squareGrid(cellSize: 1),
+            workingWidth: 1, workingHeight: 1,
+            palette: ColorPalette(colors: [.init(r: 1, g: 2, b: 3)]),
+            regions: [region], sourceImageFilename: "source.png", regionMapFilename: "map.pbnr"
+        )
+        let view = PuzzleImageView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        var activatedRegion: Int?
+        view.onTap = { activatedRegion = $0 }
+        view.configure(puzzle: puzzle, regionIds: [7])
 
-        XCTAssertTrue(view.isAccessibilityElement)
-        XCTAssertEqual(view.accessibilityLabel, "Paint by numbers canvas")
-        XCTAssertFalse(view.accessibilityHint?.isEmpty ?? true)
+        XCTAssertFalse(view.isAccessibilityElement)
+        let element = try XCTUnwrap(view.accessibilityElements?.first as? UIAccessibilityElement)
+        XCTAssertEqual(element.accessibilityLabel, "Region for color 1")
+        XCTAssertTrue(element.accessibilityActivate())
+        XCTAssertEqual(activatedRegion, 7)
+    }
+
+    private func rgbaPixel(in image: UIImage, x: Int, y: Int) -> [UInt8]? {
+        guard let cgImage = image.cgImage,
+              x >= 0, x < cgImage.width, y >= 0, y < cgImage.height,
+              let data = cgImage.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else { return nil }
+        let offset = y * cgImage.bytesPerRow + x * 4
+        return Array(UnsafeBufferPointer(start: bytes + offset, count: 4))
     }
 }

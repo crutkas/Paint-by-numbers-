@@ -264,9 +264,8 @@ final class PuzzleImageView: UIView {
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
         contentMode = .scaleAspectFit
-        isAccessibilityElement = true
-        accessibilityLabel = "Paint by numbers canvas"
-        accessibilityHint = "Swipe with one finger to paint matching regions. Use two fingers to move the canvas."
+        isAccessibilityElement = false
+        accessibilityContainerType = .semanticGroup
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
@@ -274,6 +273,7 @@ final class PuzzleImageView: UIView {
     func configure(puzzle: PuzzleMetadata, regionIds: [Int]) {
         self.puzzle = puzzle
         self.regionIds = regionIds
+        updateAccessibilityRegions()
         setNeedsDisplay()
     }
 
@@ -285,12 +285,57 @@ final class PuzzleImageView: UIView {
         self.lastProgress = progress
         self.highlightedColorIndex = highlightedColorIndex
         self.bigNumbers = bigNumbers
-        accessibilityValue = "\(Int(PuzzleProgressCalculator.completion(progress: progress, puzzle: puzzle) * 100)) percent complete"
+        updateAccessibilityRegions()
         setNeedsDisplay()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateAccessibilityRegions()
+    }
+
+    private func updateAccessibilityRegions() {
+        guard let puzzle, bounds.width > 0, bounds.height > 0 else {
+            accessibilityElements = []
+            return
+        }
+        let scaleX = bounds.width / CGFloat(max(1, puzzle.workingWidth))
+        let scaleY = bounds.height / CGFloat(max(1, puzzle.workingHeight))
+        accessibilityElements = puzzle.regions.compactMap { region in
+            guard lastProgress?.filledRegionIds.contains(region.id) != true else { return nil }
+            let element = PuzzleRegionAccessibilityElement(accessibilityContainer: self) { [weak self] in
+                self?.onTap(region.id)
+            }
+            element.accessibilityLabel = "Region for color \(region.colorIndex + 1)"
+            element.accessibilityValue = "Not painted"
+            element.accessibilityHint = "Double-tap to paint this region with the selected color."
+            element.accessibilityTraits = .button
+            element.accessibilityFrameInContainerSpace = CGRect(
+                x: CGFloat(region.bounds.minX) * scaleX,
+                y: CGFloat(region.bounds.minY) * scaleY,
+                width: CGFloat(region.bounds.width) * scaleX,
+                height: CGFloat(region.bounds.height) * scaleY
+            )
+            return element
+        }
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         deliverRegion(atPoint: recognizer.location(in: self))
+    }
+
+    private final class PuzzleRegionAccessibilityElement: UIAccessibilityElement {
+        private let activation: () -> Void
+
+        init(accessibilityContainer container: Any, activation: @escaping () -> Void) {
+            self.activation = activation
+            super.init(accessibilityContainer: container)
+        }
+
+        override func accessibilityActivate() -> Bool {
+            activation()
+            return true
+        }
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {

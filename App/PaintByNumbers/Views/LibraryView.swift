@@ -75,30 +75,6 @@ struct LibraryView: View {
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .alert("Something went wrong", isPresented: Binding(
-            get: { library.userFacingError != nil },
-            set: {
-                if !$0 {
-                    library.userFacingError = nil
-                    library.retryAction = nil
-                }
-            }
-        )) {
-            if library.retryAction != nil {
-                Button("Try Again") {
-                    let retry = library.retryAction
-                    library.retryAction = nil
-                    library.userFacingError = nil
-                    retry?()
-                }
-            }
-            Button("OK") {
-                library.userFacingError = nil
-                library.retryAction = nil
-            }
-        } message: {
-            Text(library.userFacingError ?? "")
-        }
         .sheet(isPresented: $showCamera) {
             CameraPicker { image in
                 do {

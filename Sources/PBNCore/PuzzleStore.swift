@@ -14,6 +14,12 @@ public final class PuzzleStore {
     public enum StoreError: Error {
         case puzzleNotFound(UUID)
         case unsupportedSchema(Int)
+        case invalidMetadata(UUID)
+    }
+
+    public struct ListResult {
+        public let puzzles: [PuzzleMetadata]
+        public let quarantinedPuzzleCount: Int
     }
 
     public let rootDirectory: URL
@@ -66,6 +72,7 @@ public final class PuzzleStore {
         guard metadata.schemaVersion <= PuzzleMetadata.currentSchemaVersion else {
             throw StoreError.unsupportedSchema(metadata.schemaVersion)
         }
+        guard isValid(metadata) else { throw StoreError.invalidMetadata(id) }
         return metadata
     }
 
@@ -100,27 +107,69 @@ public final class PuzzleStore {
 
     /// Return the metadata of every stored puzzle, newest first.
     public func listPuzzles() throws -> [PuzzleMetadata] {
+        try listPuzzlesWithRecovery().puzzles
+    }
+
+    /// Loads every healthy puzzle while isolating malformed folders. The
+    /// recovery count lets the app explain why an item disappeared instead of
+    /// silently swallowing storage damage.
+    public func listPuzzlesWithRecovery() throws -> ListResult {
         let puzzlesRoot = rootDirectory.appendingPathComponent("Puzzles", isDirectory: true)
-        guard fileManager.fileExists(atPath: puzzlesRoot.path) else { return [] }
+        guard fileManager.fileExists(atPath: puzzlesRoot.path) else {
+            return ListResult(puzzles: [], quarantinedPuzzleCount: 0)
+        }
         let contents = try fileManager.contentsOfDirectory(
             at: puzzlesRoot,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
         var metadatas: [PuzzleMetadata] = []
+        var quarantinedCount = 0
         for dir in contents {
             let metaURL = dir.appendingPathComponent("metadata.json")
             guard fileManager.fileExists(atPath: metaURL.path) else { continue }
             let data = try Data(contentsOf: metaURL)
-            if let meta = try? decoder.decode(PuzzleMetadata.self, from: data),
-               meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion {
+            do {
+                let meta = try decoder.decode(PuzzleMetadata.self, from: data)
+                guard meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion, isValid(meta) else {
+                    throw StoreError.invalidMetadata(meta.id)
+                }
                 metadatas.append(meta)
-            } else {
-                let quarantine = dir.appendingPathExtension("corrupt")
-                try? fileManager.moveItem(at: dir, to: quarantine)
+            } catch {
+                var quarantine = dir.appendingPathExtension("corrupt")
+                if fileManager.fileExists(atPath: quarantine.path) {
+                    quarantine = dir
+                        .deletingLastPathComponent()
+                        .appendingPathComponent("\(dir.lastPathComponent).corrupt-\(UUID().uuidString)")
+                }
+                try fileManager.moveItem(at: dir, to: quarantine)
+                quarantinedCount += 1
             }
         }
         metadatas.sort { $0.lastEditedAt > $1.lastEditedAt }
-        return metadatas
+        return ListResult(puzzles: metadatas, quarantinedPuzzleCount: quarantinedCount)
+    }
+
+    private func isValid(_ metadata: PuzzleMetadata) -> Bool {
+        guard metadata.workingWidth > 0, metadata.workingHeight > 0,
+              metadata.sourcePixelWidth > 0, metadata.sourcePixelHeight > 0,
+              ShareImport.isSafeFilename(metadata.sourceImageFilename),
+              ShareImport.isSafeFilename(metadata.regionMapFilename),
+              metadata.outlineFilename.map(ShareImport.isSafeFilename) ?? true else {
+            return false
+        }
+        let ids = metadata.regions.map(\.id)
+        guard Set(ids).count == ids.count else { return false }
+        return metadata.regions.allSatisfy { region in
+            region.id >= 0 &&
+            region.pixelCount > 0 &&
+            metadata.palette.colors.indices.contains(region.colorIndex) &&
+            region.bounds.minX >= 0 &&
+            region.bounds.minY >= 0 &&
+            region.bounds.maxX < metadata.workingWidth &&
+            region.bounds.maxY < metadata.workingHeight &&
+            region.bounds.minX <= region.bounds.maxX &&
+            region.bounds.minY <= region.bounds.maxY
+        }
     }
 }

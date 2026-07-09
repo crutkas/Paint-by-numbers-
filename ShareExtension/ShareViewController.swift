@@ -7,6 +7,9 @@ import ImageIO
 /// App Group inbox, and opens the host app via the `paintbynumbers://import`
 /// URL scheme so the image can be turned into a puzzle.
 final class ShareViewController: UIViewController {
+    private static let maximumFileBytes = 25 * 1_024 * 1_024
+    private static let maximumDimension = 12_000
+    private static let maximumPixels = 40_000_000
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -18,7 +21,7 @@ final class ShareViewController: UIViewController {
             let item = extensionContext?.inputItems.compactMap({ $0 as? NSExtensionItem }).first,
             let attachment = item.attachments?.first
         else {
-            completeOnMain()
+            failOnMain("No image was included in this share.")
             return
         }
 
@@ -28,30 +31,24 @@ final class ShareViewController: UIViewController {
         } else if attachment.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             typeIdentifier = UTType.fileURL.identifier
         } else {
-            completeOnMain()
+            failOnMain("This item is not a supported image.")
             return
         }
 
-        attachment.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { [weak self] data, _ in
+        attachment.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { [weak self] data, error in
             guard let self else { return }
-            let image: UIImage? = {
-                if let img = data as? UIImage { return img }
-                if let url = data as? URL, let d = try? Data(contentsOf: url) { return UIImage(data: d) }
-                if let d = data as? Data { return UIImage(data: d) }
-                return nil
-            }()
-            guard let image,
-                  let cgImage = image.cgImage,
-                  cgImage.width <= 12_000,
-                  cgImage.height <= 12_000,
-                  cgImage.width.multipliedReportingOverflow(by: cgImage.height).overflow == false,
-                  cgImage.width * cgImage.height <= 40_000_000,
-                  let pngData = image.pngData(),
-                  pngData.count <= 25 * 1_024 * 1_024 else {
-                self.completeOnMain()
+            do {
+                let pngData = try self.validatedPNG(from: data)
+                self.persistAndOpen(pngData: pngData)
+            } catch {
+                self.failOnMain(
+                    error.localizedDescription.isEmpty
+                        ? "The shared image could not be opened safely."
+                        : error.localizedDescription
+                )
+                NSLog("Share import failed: \(error)")
                 return
             }
-            self.persistAndOpen(pngData: pngData)
         }
     }
 
@@ -59,12 +56,17 @@ final class ShareViewController: UIViewController {
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: AppConfiguration.appGroupIdentifier
         ) else {
-            completeOnMain()
+            failOnMain("Shared storage is unavailable. Open Paint by Numbers once, then try again.")
             return
         }
         let inbox = container.appendingPathComponent("SharedInbox", isDirectory: true)
-        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
-        removeAbandonedHandoffs(in: inbox)
+        do {
+            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+            try removeAbandonedHandoffs(in: inbox)
+        } catch {
+            failOnMain("Shared storage could not be prepared. \(error.localizedDescription)")
+            return
+        }
 
         // UUID strings match `ShareImport.isValidToken`'s allowlist, so the
         // host app will accept this token when it parses the open-URL.
@@ -77,33 +79,82 @@ final class ShareViewController: UIViewController {
             let metaURL = inbox.appendingPathComponent("\(token).json")
             try JSONEncoder().encode(payload).write(to: metaURL, options: .atomic)
         } catch {
-            completeOnMain()
+            failOnMain("The image could not be saved for import. \(error.localizedDescription)")
             return
-        }
-
-        /// Prevent failed or never-opened handoffs from accumulating indefinitely.
-        private func removeAbandonedHandoffs(in inbox: URL) {
-            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-            let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
-            guard let files = try? FileManager.default.contentsOfDirectory(
-                at: inbox,
-                includingPropertiesForKeys: Array(keys),
-                options: [.skipsHiddenFiles]
-            ) else { return }
-            for file in files {
-                guard ShareImport.isSafeFilename(file.lastPathComponent),
-                      let values = try? file.resourceValues(forKeys: keys),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      modified < cutoff else { continue }
-                try? FileManager.default.removeItem(at: file)
-            }
         }
 
         let openURL = ShareImport.openURL(for: token)
         DispatchQueue.main.async { [weak self] in
             self?.open(url: openURL)
             self?.complete()
+        }
+
+        private func validatedPNG(from item: NSSecureCoding?) throws -> Data {
+            let image: UIImage
+            if let suppliedImage = item as? UIImage {
+                image = suppliedImage
+            } else {
+                let data: Data
+                if let url = item as? URL {
+                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    guard values.isRegularFile == true else { throw ShareError.invalidImage }
+                    guard (values.fileSize ?? Self.maximumFileBytes + 1) <= Self.maximumFileBytes else {
+                        throw ShareError.fileTooLarge
+                    }
+                    data = try Data(contentsOf: url, options: .mappedIfSafe)
+                } else if let suppliedData = item as? Data {
+                    data = suppliedData
+                } else {
+                    throw ShareError.invalidImage
+                }
+                guard data.count <= Self.maximumFileBytes else { throw ShareError.fileTooLarge }
+                try validateEncodedDimensions(data)
+                guard let decoded = UIImage(data: data) else { throw ShareError.invalidImage }
+                image = decoded
+            }
+
+            guard let cgImage = image.cgImage else { throw ShareError.invalidImage }
+            try validateDimensions(width: cgImage.width, height: cgImage.height)
+            guard let pngData = image.pngData(), pngData.count <= Self.maximumFileBytes else {
+                throw ShareError.fileTooLarge
+            }
+            return pngData
+        }
+
+        private func validateEncodedDimensions(_ data: Data) throws {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+                throw ShareError.invalidImage
+            }
+            try validateDimensions(width: width, height: height)
+        }
+
+        private func validateDimensions(width: Int, height: Int) throws {
+            let pixels = width.multipliedReportingOverflow(by: height)
+            guard width > 0, height > 0,
+                  width <= Self.maximumDimension, height <= Self.maximumDimension,
+                  !pixels.overflow, pixels.partialValue <= Self.maximumPixels else {
+                throw ShareError.dimensionsTooLarge
+            }
+        }
+
+        /// Prevent failed or never-opened handoffs from accumulating indefinitely.
+        private func removeAbandonedHandoffs(in inbox: URL) throws {
+            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+            let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey]
+            let files = try FileManager.default.contentsOfDirectory(
+                at: inbox,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsHiddenFiles]
+            )
+            for file in files where ShareImport.isSafeFilename(file.lastPathComponent) {
+                let values = try file.resourceValues(forKeys: keys)
+                guard values.isRegularFile == true, values.isSymbolicLink != true,
+                      let modified = values.contentModificationDate, modified < cutoff else { continue }
+                try FileManager.default.removeItem(at: file)
+            }
         }
     }
 
@@ -131,10 +182,42 @@ final class ShareViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.complete()
             }
+
+            private func failOnMain(_ message: String) {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    let alert = UIAlertController(
+                        title: "Couldn’t import image",
+                        message: message,
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                        self?.complete()
+                    })
+                    self.present(alert, animated: true)
+                }
+            }
         }
     }
 
     private func complete() {
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+
+    private enum ShareError: LocalizedError {
+        case fileTooLarge
+        case dimensionsTooLarge
+        case invalidImage
+
+        var errorDescription: String? {
+            switch self {
+            case .fileTooLarge:
+                return "The image is larger than the 25 MB import limit."
+            case .dimensionsTooLarge:
+                return "The image has too many pixels to process safely."
+            case .invalidImage:
+                return "The shared item is not a valid supported image."
+            }
+        }
     }
 }

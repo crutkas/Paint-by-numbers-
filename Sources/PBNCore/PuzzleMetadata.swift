@@ -158,11 +158,13 @@ public struct PuzzleProgress: Codable, Equatable, Sendable {
 /// trivially testable (no file I/O, no UIKit).
 public enum PuzzleProgressCalculator {
     public static func completion(progress: PuzzleProgress, puzzle: PuzzleMetadata) -> Double {
+        guard progress.puzzleId == puzzle.id else { return 0 }
         let valid = Set(puzzle.regions.map(\.id))
         return progress.sanitized(validRegionIds: valid).completion(totalRegions: valid.count)
     }
 
     public static func isComplete(progress: PuzzleProgress, puzzle: PuzzleMetadata) -> Bool {
+        guard progress.puzzleId == puzzle.id else { return false }
         let valid = Set(puzzle.regions.map(\.id))
         return !valid.isEmpty && progress.filledRegionIds.isSuperset(of: valid)
     }
@@ -174,7 +176,10 @@ public enum PuzzleProgressCalculator {
         puzzle: PuzzleMetadata,
         progress: PuzzleProgress
     ) -> [Int] {
-        puzzle.regions
+        guard progress.puzzleId == puzzle.id else {
+            return puzzle.regions.filter { $0.colorIndex == colorIndex }.map(\.id)
+        }
+        return puzzle.regions
             .filter { $0.colorIndex == colorIndex && !progress.filledRegionIds.contains($0.id) }
             .map { $0.id }
     }
