@@ -1,9 +1,10 @@
 import Foundation
+import PBNCore
 
 /// Names and helpers for the App Group container shared between the main app
 /// and the Share Extension.
 public enum AppGroup {
-    public static let identifier = "group.com.example.paintbynumbers"
+    public static let identifier = AppConfiguration.appGroupIdentifier
 
     /// Shared container URL. Falls back to Application Support (or, if even
     /// that fails, the temporary directory) so debug builds without App Group
@@ -23,7 +24,11 @@ public enum AppGroup {
             NSLog("AppGroup: Failed to resolve Application Support directory: \(error)")
             let fallback = FileManager.default.temporaryDirectory
                 .appendingPathComponent("PaintByNumbers", isDirectory: true)
-            try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+            do {
+                try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+            } catch {
+                NSLog("AppGroup: Failed to create temporary fallback: \(error)")
+            }
             return fallback
         }
     }
@@ -31,14 +36,22 @@ public enum AppGroup {
     /// Folder where the Share Extension drops incoming images.
     public static var sharedInboxURL: URL {
         let url = containerURL.appendingPathComponent("SharedInbox", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        ensureDirectory(url)
         return url
     }
 
     /// Root directory for puzzle storage.
     public static var puzzlesRootURL: URL {
         let url = containerURL.appendingPathComponent("PBN", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        ensureDirectory(url)
         return url
+    }
+
+    private static func ensureDirectory(_ url: URL) {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            NSLog("AppGroup: Failed to create \(url.lastPathComponent): \(error)")
+        }
     }
 }

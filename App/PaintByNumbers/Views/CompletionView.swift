@@ -8,6 +8,7 @@ import PBNCore
 struct CompletionView: View {
     let puzzle: PuzzleMetadata
     let progress: PuzzleProgress
+    let regionIds: [Int]
     @Environment(\.dismiss) private var dismiss
 
     @State private var rendered: UIImage?
@@ -52,6 +53,7 @@ struct CompletionView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(rendered == nil)
 
                 Button {
                     shareItem = rendered
@@ -61,6 +63,7 @@ struct CompletionView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .disabled(rendered == nil)
 
                 Button("Back to My Pictures") { dismiss() }
                     .font(.system(.body, design: .rounded, weight: .semibold))
@@ -88,31 +91,13 @@ struct CompletionView: View {
     }
 
     private func render() {
-        // Draw the filled image at working-resolution scale to produce a
-        // pleasant shareable PNG. A production build would upsample to source
-        // resolution and redraw the clean outlined version.
-        let size = CGSize(width: puzzle.workingWidth * 8, height: puzzle.workingHeight * 8)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { ctx in
-            UIColor.white.setFill()
-            ctx.fill(CGRect(origin: .zero, size: size))
-            for region in puzzle.regions where progress.filledRegionIds.contains(region.id) {
-                let color = puzzle.palette.colors[region.colorIndex]
-                UIColor(
-                    red: CGFloat(color.r) / 255,
-                    green: CGFloat(color.g) / 255,
-                    blue: CGFloat(color.b) / 255,
-                    alpha: 1
-                ).setFill()
-                let b = region.bounds
-                let rect = CGRect(
-                    x: CGFloat(b.minX) * 8,
-                    y: CGFloat(b.minY) * 8,
-                    width: CGFloat(b.width) * 8,
-                    height: CGFloat(b.height) * 8
-                )
-                ctx.fill(rect)
-            }
+        guard let image = PuzzleRenderer.render(
+            puzzle: puzzle,
+            progress: progress,
+            regionIds: regionIds
+        ) else {
+            saveResult = .failed("The puzzle's region map is missing or damaged.")
+            return
         }
         self.rendered = image
     }

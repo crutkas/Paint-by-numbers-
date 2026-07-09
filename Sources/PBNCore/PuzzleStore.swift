@@ -6,15 +6,20 @@ import Foundation
 /// - `metadata.json`  — `PuzzleMetadata`
 /// - `progress.json`  — `PuzzleProgress`
 /// - `source.png`     — original image (filename comes from metadata)
-/// - `regionMap.png`  — region-id map (filename comes from metadata)
+/// - `regionMap.pbnr` — lossless UInt32 region-id map
 /// - `outline.png`    — optional outline overlay
 ///
-/// This layout mirrors the plan's "large blobs as files, metadata in
-/// SwiftData" goal. The store itself is pure-Foundation so it tests on Linux;
-/// on-device the iOS app wraps it with SwiftData for indexing + iCloud sync.
+/// The store is pure Foundation so it can be tested on Linux.
 public final class PuzzleStore {
     public enum StoreError: Error {
         case puzzleNotFound(UUID)
+        case unsupportedSchema(Int)
+        case invalidMetadata(UUID)
+    }
+
+    public struct ListResult {
+        public let puzzles: [PuzzleMetadata]
+        public let quarantinedPuzzleCount: Int
     }
 
     public let rootDirectory: URL
@@ -63,7 +68,12 @@ public final class PuzzleStore {
             throw StoreError.puzzleNotFound(id)
         }
         let data = try Data(contentsOf: url)
-        return try decoder.decode(PuzzleMetadata.self, from: data)
+        let metadata = try decoder.decode(PuzzleMetadata.self, from: data)
+        guard metadata.schemaVersion <= PuzzleMetadata.currentSchemaVersion else {
+            throw StoreError.unsupportedSchema(metadata.schemaVersion)
+        }
+        guard isValid(metadata) else { throw StoreError.invalidMetadata(id) }
+        return metadata
     }
 
     public func saveProgress(_ progress: PuzzleProgress) throws {
@@ -80,7 +90,11 @@ public final class PuzzleStore {
             return PuzzleProgress(puzzleId: id)
         }
         let data = try Data(contentsOf: url)
-        return try decoder.decode(PuzzleProgress.self, from: data)
+        let progress = try decoder.decode(PuzzleProgress.self, from: data)
+        guard progress.schemaVersion <= PuzzleProgress.currentSchemaVersion else {
+            throw StoreError.unsupportedSchema(progress.schemaVersion)
+        }
+        return progress
     }
 
     /// Delete a puzzle and everything associated with it.
@@ -93,23 +107,118 @@ public final class PuzzleStore {
 
     /// Return the metadata of every stored puzzle, newest first.
     public func listPuzzles() throws -> [PuzzleMetadata] {
+        try listPuzzlesWithRecovery().puzzles
+    }
+
+    /// Loads every healthy puzzle while isolating malformed folders. The
+    /// recovery count lets the app explain why an item disappeared instead of
+    /// silently swallowing storage damage.
+    public func listPuzzlesWithRecovery() throws -> ListResult {
         let puzzlesRoot = rootDirectory.appendingPathComponent("Puzzles", isDirectory: true)
-        guard fileManager.fileExists(atPath: puzzlesRoot.path) else { return [] }
+        guard fileManager.fileExists(atPath: puzzlesRoot.path) else {
+            return ListResult(puzzles: [], quarantinedPuzzleCount: 0)
+        }
         let contents = try fileManager.contentsOfDirectory(
             at: puzzlesRoot,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
         var metadatas: [PuzzleMetadata] = []
+        var quarantinedCount = 0
         for dir in contents {
+            if dir.pathExtension == "corrupt" || dir.lastPathComponent.contains(".corrupt-") {
+                continue
+            }
+            let directoryValues: URLResourceValues
+            do {
+                directoryValues = try dir.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            } catch {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
+            guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true else {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
             let metaURL = dir.appendingPathComponent("metadata.json")
-            guard fileManager.fileExists(atPath: metaURL.path) else { continue }
-            let data = try Data(contentsOf: metaURL)
-            if let meta = try? decoder.decode(PuzzleMetadata.self, from: data) {
+            guard fileManager.fileExists(atPath: metaURL.path) else {
+                try quarantine(dir)
+                quarantinedCount += 1
+                continue
+            }
+            do {
+                let data = try Data(contentsOf: metaURL)
+                let meta = try decoder.decode(PuzzleMetadata.self, from: data)
+                guard UUID(uuidString: dir.lastPathComponent) == meta.id,
+                      meta.schemaVersion <= PuzzleMetadata.currentSchemaVersion,
+                      isValid(meta),
+                      isRegularFile(meta.sourceImageFilename, in: dir),
+                      isRegularFile(meta.regionMapFilename, in: dir),
+                      meta.outlineFilename.map({ isRegularFile($0, in: dir) }) ?? true else {
+                    throw StoreError.invalidMetadata(meta.id)
+                }
                 metadatas.append(meta)
+            } catch {
+                try quarantine(dir)
+                quarantinedCount += 1
             }
         }
         metadatas.sort { $0.lastEditedAt > $1.lastEditedAt }
-        return metadatas
+        return ListResult(puzzles: metadatas, quarantinedPuzzleCount: quarantinedCount)
+    }
+
+    private func quarantine(_ directory: URL) throws {
+        var destination = directory.appendingPathExtension("corrupt")
+        if fileManager.fileExists(atPath: destination.path) {
+            destination = directory
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(directory.lastPathComponent).corrupt-\(UUID().uuidString)")
+        }
+        try fileManager.moveItem(at: directory, to: destination)
+    }
+
+    private func isRegularFile(_ filename: String, in directory: URL) -> Bool {
+        do {
+            let values = try directory
+                .appendingPathComponent(filename)
+                .resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            return values.isRegularFile == true && values.isSymbolicLink != true
+        } catch {
+            return false
+        }
+    }
+
+    private func isValid(_ metadata: PuzzleMetadata) -> Bool {
+        let workingPixels = metadata.workingWidth.multipliedReportingOverflow(
+            by: metadata.workingHeight
+        )
+        let sourcePixels = metadata.sourcePixelWidth.multipliedReportingOverflow(
+            by: metadata.sourcePixelHeight
+        )
+        guard metadata.workingWidth > 0, metadata.workingHeight > 0,
+              !workingPixels.overflow, workingPixels.partialValue <= 40_000_000,
+              metadata.sourcePixelWidth > 0, metadata.sourcePixelHeight > 0,
+              metadata.sourcePixelWidth <= 12_000, metadata.sourcePixelHeight <= 12_000,
+              !sourcePixels.overflow, sourcePixels.partialValue <= 40_000_000,
+              ShareImport.isSafeFilename(metadata.sourceImageFilename),
+              ShareImport.isSafeFilename(metadata.regionMapFilename),
+              metadata.outlineFilename.map(ShareImport.isSafeFilename) ?? true else {
+            return false
+        }
+        let ids = metadata.regions.map(\.id)
+        guard Set(ids).count == ids.count else { return false }
+        return metadata.regions.allSatisfy { region in
+            region.id >= 0 &&
+            region.pixelCount > 0 &&
+            metadata.palette.colors.indices.contains(region.colorIndex) &&
+            region.bounds.minX >= 0 &&
+            region.bounds.minY >= 0 &&
+            region.bounds.maxX < metadata.workingWidth &&
+            region.bounds.maxY < metadata.workingHeight &&
+            region.bounds.minX <= region.bounds.maxX &&
+            region.bounds.minY <= region.bounds.maxY
+        }
     }
 }

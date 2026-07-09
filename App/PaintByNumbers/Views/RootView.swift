@@ -31,6 +31,30 @@ struct RootView: View {
             // screen later doesn't auto-push a second setup page.
             library.pendingImportImage = nil
         }
+        .alert("Something went wrong", isPresented: Binding(
+            get: { library.userFacingError != nil },
+            set: {
+                if !$0 {
+                    library.userFacingError = nil
+                    library.retryAction = nil
+                }
+            }
+        )) {
+            if library.retryAction != nil {
+                Button("Try Again") {
+                    let retry = library.retryAction
+                    library.retryAction = nil
+                    library.userFacingError = nil
+                    retry?()
+                }
+            }
+            Button("OK") {
+                library.userFacingError = nil
+                library.retryAction = nil
+            }
+        } message: {
+            Text(library.userFacingError ?? "")
+        }
     }
 }
 

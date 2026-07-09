@@ -18,6 +18,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         return RGBImage(width: width, height: height, pixels: pixels)
     }
 
+    // Difficulty promises a specific palette size that drives the numbered color choices.
     func testGenerateProducesExpectedPaletteSize() {
         let img = twoBandImage()
         let puzzle = PuzzleGenerator.generate(image: img, difficulty: .easy)
@@ -27,6 +28,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(puzzle.palette.colors.count, 1)
     }
 
+    // Valid photos must always yield paintable regions and a complete per-pixel map.
     func testGenerateProducesNonEmptyRegions() {
         let img = twoBandImage()
         let puzzle = PuzzleGenerator.generate(image: img, difficulty: .medium)
@@ -41,6 +43,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         }
     }
 
+    // Identical inputs and seeds must generate stable puzzles across saves and platforms.
     func testGenerateIsDeterministicForSameSeed() {
         let img = twoBandImage()
         let a = PuzzleGenerator.generate(image: img, difficulty: .medium, seed: 99)
@@ -50,6 +53,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertEqual(a.regionIds, b.regionIds)
     }
 
+    // Square-grid working dimensions must align to cells so edge hit-testing stays consistent.
     func testSquareGridProducesMultipleOfCellSizeWidth() {
         let img = twoBandImage(width: 40, height: 40)
         let puzzle = PuzzleGenerator.generate(
@@ -62,6 +66,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(puzzle.regions.count, 2)
     }
 
+    // Working resolution must preserve photo proportions to avoid distorted puzzles.
     func testWorkingSizePreservesAspectRatio() {
         let img = RGBImage(width: 400, height: 100, fill: RGBColor(r: 0, g: 0, b: 0))
         let (w, h) = PuzzleGenerator.workingSize(forImage: img, difficulty: .medium)
@@ -70,6 +75,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertEqual(h, Int((Double(Difficulty.medium.workingLongEdge) / 4.0).rounded()))
     }
 
+    // Rounded short-edge sizing avoids a systematic one-pixel aspect-ratio bias.
     func testWorkingSizeRoundsRatherThanTruncates() {
         // 300x100 at target `workingLongEdge` -> expected h = round(100/300 * target),
         // not one less (which a `.rounded()`-on-wrong-operand truncation bug would
@@ -81,6 +87,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         XCTAssertEqual(h, Int(((100.0 / 300.0) * Double(target)).rounded()))
     }
 
+    // Every region color index must be safe to use against the generated palette.
     func testRegionsColorIndicesAreValid() {
         let img = twoBandImage()
         let puzzle = PuzzleGenerator.generate(image: img, difficulty: .medium)
@@ -90,6 +97,7 @@ final class PuzzleGeneratorTests: XCTestCase {
         }
     }
 
+    // Invalid empty images must return an empty result rather than crash the pipeline.
     func testEmptyImageGeneratesEmptyPuzzle() {
         let img = RGBImage(width: 0, height: 0, pixels: [])
         let puzzle = PuzzleGenerator.generate(image: img, difficulty: .easy)

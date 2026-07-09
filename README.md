@@ -23,7 +23,8 @@ puzzles via the bundled Share Extension.
 │   ├── PuzzleMetadata.swift        Codable models + progress helpers
 │   ├── PuzzleStore.swift           Disk-backed metadata + progress store
 │   └── ShareImport.swift           URL scheme + App-Group handoff payload
-├── Tests/PBNCoreTests/         XCTest suite (48 tests) — runs on Linux
+├── Tests/PBNCoreTests/         XCTest suite (69 tests) — runs on Linux
+├── AppTests/                   iOS integration tests for imports and rendering
 ├── App/PaintByNumbers/         SwiftUI iOS/iPadOS app
 │   ├── PaintByNumbersApp.swift     @main entry
 │   ├── PuzzleLibrary.swift         ObservableObject backing the app
@@ -66,11 +67,15 @@ Select the **PaintByNumbers** scheme and an iPhone/iPad simulator, then ⌘R.
 swift test --parallel
 ```
 
-This runs the entire `PBNCoreTests` suite (48 tests) against the PBN engine,
+This runs the entire `PBNCoreTests` suite (69 tests) against the PBN engine,
 covering color math, image scaling, k-means quantization determinism and edge
 cases, connected-components labeling and region merging, the full puzzle
 generator, progress/completion calculation, on-disk puzzle store round-trips,
 and share-import URL parsing.
+
+The iOS test target additionally verifies import resource limits and exact-map
+rendering for square-grid and freeform puzzles. CI runs these tests in an iOS
+Simulator.
 
 ### macOS / Xcode
 
@@ -107,6 +112,7 @@ GitHub Actions runs two jobs on every push and pull request (see
 | Color quantization | k-means++ in `KMeansQuantizer.swift` |
 | Region generation | `ConnectedComponents.swift` with small-region merging |
 | Save puzzle state | `PuzzleStore.saveProgress` / `loadProgress` |
+| Exact region persistence | Lossless UInt32 `.pbnr` map used for drawing and hit-testing |
 | Save final image | `CompletionView` → `PHPhotoLibrary` |
 | Share final image | `CompletionView` → `UIActivityViewController` |
 | Share **into** the app | `PBNShareExtension` → App Group → `paintbynumbers://import?token=…` |
@@ -116,7 +122,24 @@ GitHub Actions runs two jobs on every push and pull request (see
 ## Privacy
 
 All image processing happens on device. No network calls are made with user
-images. The app declares Photos and Camera usage strings in `Info.plist`.
+images. Imports are limited to 25 MB, 12,000 pixels per edge, and 40 million
+decoded pixels to avoid unsafe memory pressure. The app declares Photos and
+Camera usage strings in `Info.plist`.
+
+## Persistence and recovery
+
+Metadata and progress JSON include a schema version. Older unversioned records
+are migrated while decoding; unsupported or malformed puzzle folders are
+quarantined with a `.corrupt` suffix so the rest of the library remains usable.
+Puzzle images, exact region maps, and progress remain local to the app group.
+
+## Current limitations
+
+- Storage is local to the device; there is no iCloud or cross-device sync.
+- Completion exports use the original image's pixel dimensions, but render the
+  generated puzzle's working-resolution region map with nearest-neighbor edges.
+- Damaged puzzle folders are preserved with a `.corrupt` suffix for recovery,
+  but the app does not yet provide an in-app repair or restore browser.
 
 ## License
 

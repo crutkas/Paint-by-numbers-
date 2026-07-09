@@ -10,7 +10,11 @@ struct PaintByNumbersApp: App {
             RootView()
                 .environmentObject(library)
                 .onOpenURL { url in
-                    library.handleIncomingURL(url)
+                    if url.isFileURL {
+                        Task { await library.handleImportedFile(url) }
+                    } else {
+                        Task { await library.handleIncomingURL(url) }
+                    }
                 }
                 // iPad drag-and-drop of images onto the app window.
                 .onDrop(of: [.image], isTargeted: nil) { providers in

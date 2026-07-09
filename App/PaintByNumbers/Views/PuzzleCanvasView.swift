@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PBNCore
+import AudioToolbox
 
 /// UIKit-backed canvas for playing a puzzle. Renders the region id map plus
 /// the filled-color overlay into a `UIImage`, shown inside a `UIScrollView`
@@ -10,8 +11,12 @@ struct PuzzleCanvasView: UIViewRepresentable {
     let puzzle: PuzzleMetadata
     @Binding var progress: PuzzleProgress
     @Binding var selectedColorIndex: Int
+    let regionIds: [Int]
 
     @AppStorage("pbn.showColorBlocks") private var showColorBlocks = false
+    @AppStorage("pbn.haptics") private var hapticsOn = true
+    @AppStorage("pbn.sound") private var soundOn = true
+    @AppStorage("pbn.colorblindNumbers") private var bigNumbers = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(puzzle: puzzle)
@@ -19,7 +24,7 @@ struct PuzzleCanvasView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PuzzleScrollView {
         let view = PuzzleScrollView()
-        view.configure(with: puzzle, coordinator: context.coordinator)
+        view.configure(with: puzzle, regionIds: regionIds, coordinator: context.coordinator)
         context.coordinator.onTapRegion = { regionId in
             handleTap(regionId: regionId, in: context.coordinator, view: view)
         }
@@ -30,17 +35,18 @@ struct PuzzleCanvasView: UIViewRepresentable {
         uiView.update(
             progress: progress,
             puzzle: puzzle,
-            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+            regionIds: regionIds,
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil,
+            bigNumbers: bigNumbers
         )
     }
 
     private func handleTap(regionId: Int, in coordinator: Coordinator, view: PuzzleScrollView) {
-        guard regionId >= 0 && regionId < puzzle.regions.count else { return }
-        let region = puzzle.regions[regionId]
+        guard let region = puzzle.regions.first(where: { $0.id == regionId }) else { return }
         guard region.colorIndex == selectedColorIndex else {
             // Intentionally no visual flash here — just a soft haptic nudge so
             // the wrong-color tap doesn't strobe the whole canvas red.
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if hapticsOn { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
             return
         }
         guard !progress.filledRegionIds.contains(regionId) else { return }
@@ -49,9 +55,12 @@ struct PuzzleCanvasView: UIViewRepresentable {
         view.redraw(
             progress: progress,
             puzzle: puzzle,
-            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil
+            regionIds: regionIds,
+            highlightedColorIndex: showColorBlocks ? selectedColorIndex : nil,
+            bigNumbers: bigNumbers
         )
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if hapticsOn { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+        if soundOn { AudioServicesPlaySystemSound(1104) }
     }
 
     final class Coordinator {
@@ -84,6 +93,7 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
 
     func configure(
         with puzzle: PuzzleMetadata,
+        regionIds: [Int],
         coordinator: PuzzleCanvasView.Coordinator
     ) {
         delegate = self
@@ -99,7 +109,7 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         // scrolling/panning the zoomed image requires two fingers.
         panGestureRecognizer.minimumNumberOfTouches = 2
 
-        imageView.configure(puzzle: puzzle)
+        imageView.configure(puzzle: puzzle, regionIds: regionIds)
         imageView.onTap = { [weak coordinator] regionId in
             coordinator?.onTapRegion(regionId)
         }
@@ -112,12 +122,12 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
-        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
+    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, regionIds: [Int], highlightedColorIndex: Int?, bigNumbers: Bool) {
+        imageView.update(progress: progress, puzzle: puzzle, regionIds: regionIds, highlightedColorIndex: highlightedColorIndex, bigNumbers: bigNumbers)
     }
 
-    func redraw(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
-        imageView.update(progress: progress, puzzle: puzzle, highlightedColorIndex: highlightedColorIndex)
+    func redraw(progress: PuzzleProgress, puzzle: PuzzleMetadata, regionIds: [Int], highlightedColorIndex: Int?, bigNumbers: Bool) {
+        imageView.update(progress: progress, puzzle: puzzle, regionIds: regionIds, highlightedColorIndex: highlightedColorIndex, bigNumbers: bigNumbers)
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
@@ -220,12 +230,22 @@ final class PuzzleScrollView: UIScrollView, UIScrollViewDelegate {
 
 /// Owns the rasterized canvas and the region-id hit-test map.
 final class PuzzleImageView: UIView {
+    private struct NumberFontMetrics {
+        let minimumSize: CGFloat
+        let maximumSize: CGFloat
+        let cellScale: CGFloat
+
+        static let standard = NumberFontMetrics(minimumSize: 8, maximumSize: 28, cellScale: 0.35)
+        static let large = NumberFontMetrics(minimumSize: 12, maximumSize: 36, cellScale: 0.55)
+    }
+
     private var puzzle: PuzzleMetadata?
     private var regionIds: [Int] = []
     private var lastProgress: PuzzleProgress?
     /// Color index whose unfilled regions should be tinted a very light grey
     /// as a hint to the player. `nil` disables the hint.
     private var highlightedColorIndex: Int?
+    private var bigNumbers = false
     private var lastSwipedRegionId: Int?
     /// Most recent pan sample location (in this view's coordinate space). We
     /// keep it so a fast swipe can be interpolated between callbacks — the
@@ -244,27 +264,85 @@ final class PuzzleImageView: UIView {
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
         contentMode = .scaleAspectFit
+        isAccessibilityElement = false
+        accessibilityContainerType = .semanticGroup
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    func configure(puzzle: PuzzleMetadata) {
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
+            setNeedsDisplay()
+        }
+    }
+
+    func configure(puzzle: PuzzleMetadata, regionIds: [Int]) {
         self.puzzle = puzzle
-        // The region-id map is persisted with the puzzle. In this scaffold we
-        // re-generate it lazily from metadata when available.
-        self.regionIds = []
+        self.regionIds = regionIds
+        updateAccessibilityRegions()
         setNeedsDisplay()
     }
 
-    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, highlightedColorIndex: Int?) {
+    func update(progress: PuzzleProgress, puzzle: PuzzleMetadata, regionIds: [Int], highlightedColorIndex: Int?, bigNumbers: Bool) {
         self.puzzle = puzzle
+        if regionIds.count == puzzle.workingWidth * puzzle.workingHeight {
+            self.regionIds = regionIds
+        }
         self.lastProgress = progress
         self.highlightedColorIndex = highlightedColorIndex
+        self.bigNumbers = bigNumbers
+        updateAccessibilityRegions()
         setNeedsDisplay()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateAccessibilityRegions()
+    }
+
+    private func updateAccessibilityRegions() {
+        guard let puzzle, bounds.width > 0, bounds.height > 0 else {
+            accessibilityElements = []
+            return
+        }
+        let scaleX = bounds.width / CGFloat(max(1, puzzle.workingWidth))
+        let scaleY = bounds.height / CGFloat(max(1, puzzle.workingHeight))
+        accessibilityElements = puzzle.regions.compactMap { region in
+            guard lastProgress?.filledRegionIds.contains(region.id) != true else { return nil }
+            let element = PuzzleRegionAccessibilityElement(accessibilityContainer: self) { [weak self] in
+                self?.onTap(region.id)
+            }
+            element.accessibilityLabel = "Region for color \(region.colorIndex + 1)"
+            element.accessibilityValue = "Not painted"
+            element.accessibilityHint = "Double-tap to paint this region with the selected color."
+            element.accessibilityTraits = .button
+            element.accessibilityFrameInContainerSpace = CGRect(
+                x: CGFloat(region.bounds.minX) * scaleX,
+                y: CGFloat(region.bounds.minY) * scaleY,
+                width: CGFloat(region.bounds.width) * scaleX,
+                height: CGFloat(region.bounds.height) * scaleY
+            )
+            return element
+        }
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         deliverRegion(atPoint: recognizer.location(in: self))
+    }
+
+    private final class PuzzleRegionAccessibilityElement: UIAccessibilityElement {
+        private let activation: () -> Void
+
+        init(accessibilityContainer container: Any, activation: @escaping () -> Void) {
+            self.activation = activation
+            super.init(accessibilityContainer: container)
+        }
+
+        override func accessibilityActivate() -> Bool {
+            activation()
+            return true
+        }
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -328,23 +406,18 @@ final class PuzzleImageView: UIView {
         }
         let px = Int((point.x / bounds.width) * CGFloat(puzzle.workingWidth))
         let py = Int((point.y / bounds.height) * CGFloat(puzzle.workingHeight))
-        // Without a stored region-id map we approximate: find the region whose
-        // bounds contain the tap, preferring the one whose centroid is closest.
-        var best: (Int, Double)? = nil
-        for region in puzzle.regions {
-            let b = region.bounds
-            guard px >= b.minX && px <= b.maxX && py >= b.minY && py <= b.maxY else { continue }
-            let dx = Double(region.centroid.x - px)
-            let dy = Double(region.centroid.y - py)
-            let dist = dx * dx + dy * dy
-            if best == nil || dist < best!.1 { best = (region.id, dist) }
-        }
-        guard let best else { return }
+        guard let regionId = RegionMap.regionId(
+            atX: px,
+            y: py,
+            regionIds: regionIds,
+            width: puzzle.workingWidth,
+            height: puzzle.workingHeight
+        ) else { return }
         if dedupe {
-            if lastSwipedRegionId == best.0 { return }
-            lastSwipedRegionId = best.0
+            if lastSwipedRegionId == regionId { return }
+            lastSwipedRegionId = regionId
         }
-        onTap(best.0)
+        onTap(regionId)
     }
 
     override func draw(_ rect: CGRect) {
@@ -367,17 +440,49 @@ final class PuzzleImageView: UIView {
             return 1
         }()
         let cellPoints = baseCellPixels * scaleX
-        let fontSize = max(8, min(28, cellPoints * 0.35))
-        let numberFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let fontMetrics = bigNumbers ? NumberFontMetrics.large : .standard
+        let fontSize = max(
+            fontMetrics.minimumSize,
+            min(fontMetrics.maximumSize, cellPoints * fontMetrics.cellScale)
+        )
+        let baseFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let numberFont = UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: baseFont,
+            maximumPointSize: fontMetrics.maximumSize * 1.5
+        )
         let numberAttrs: [NSAttributedString.Key: Any] = [
             .font: numberFont,
             .foregroundColor: UIColor.label
         ]
 
-        // Draw each region's bounding box: filled if completed, otherwise with
-        // its number centered. A production build would replace this with the
-        // vectorized outline paths generated during puzzle creation.
-        for region in puzzle.regions {
+        let regionsById = Dictionary(uniqueKeysWithValues: puzzle.regions.map { ($0.id, $0) })
+        if regionIds.count == puzzle.workingWidth * puzzle.workingHeight {
+            for y in 0..<puzzle.workingHeight {
+                for x in 0..<puzzle.workingWidth {
+                    let id = regionIds[y * puzzle.workingWidth + x]
+                    guard let region = regionsById[id] else { continue }
+                    let pixelRect = CGRect(x: CGFloat(x) * scaleX, y: CGFloat(y) * scaleY, width: scaleX, height: scaleY)
+                    if lastProgress?.filledRegionIds.contains(id) == true {
+                        let color = puzzle.palette.colors[region.colorIndex]
+                        ctx.setFillColor(UIColor(red: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1).cgColor)
+                        ctx.fill(pixelRect)
+                    } else if highlightedColorIndex == region.colorIndex {
+                        ctx.setFillColor(UIColor(white: 0.90, alpha: 1).cgColor)
+                        ctx.fill(pixelRect)
+                    }
+                    let rightDifferent = x + 1 == puzzle.workingWidth || regionIds[y * puzzle.workingWidth + x + 1] != id
+                    let bottomDifferent = y + 1 == puzzle.workingHeight || regionIds[(y + 1) * puzzle.workingWidth + x] != id
+                    ctx.setStrokeColor(UIColor.separator.cgColor)
+                    ctx.setLineWidth(0.5)
+                    if x == 0 { ctx.stroke(CGRect(x: pixelRect.minX, y: pixelRect.minY, width: 0, height: pixelRect.height)) }
+                    if y == 0 { ctx.stroke(CGRect(x: pixelRect.minX, y: pixelRect.minY, width: pixelRect.width, height: 0)) }
+                    if rightDifferent { ctx.stroke(CGRect(x: pixelRect.maxX, y: pixelRect.minY, width: 0, height: pixelRect.height)) }
+                    if bottomDifferent { ctx.stroke(CGRect(x: pixelRect.minX, y: pixelRect.maxY, width: pixelRect.width, height: 0)) }
+                }
+            }
+        }
+
+        for region in puzzle.regions where lastProgress?.filledRegionIds.contains(region.id) != true {
             let b = region.bounds
             let rect = CGRect(
                 x: CGFloat(b.minX) * scaleX,
@@ -385,41 +490,14 @@ final class PuzzleImageView: UIView {
                 width: CGFloat(b.width) * scaleX,
                 height: CGFloat(b.height) * scaleY
             )
-            if let progress = lastProgress, progress.filledRegionIds.contains(region.id) {
-                let color = puzzle.palette.colors[region.colorIndex]
-                ctx.setFillColor(
-                    UIColor(
-                        red: CGFloat(color.r) / 255,
-                        green: CGFloat(color.g) / 255,
-                        blue: CGFloat(color.b) / 255,
-                        alpha: 1
-                    ).cgColor
-                )
-                ctx.fill(rect)
-            } else {
-                // "See color blocks" hint: paint the background of every
-                // unfilled cell belonging to the currently-selected color
-                // in a very light grey, so the shape of the next color
-                // pops visually without giving away the final color.
-                if let highlighted = highlightedColorIndex, region.colorIndex == highlighted {
-                    ctx.setFillColor(UIColor(white: 0.90, alpha: 1).cgColor)
-                    ctx.fill(rect)
-                }
-                ctx.setStrokeColor(UIColor.separator.cgColor)
-                ctx.setLineWidth(0.5)
-                ctx.stroke(rect)
-
-                let number = "\(region.colorIndex + 1)"
-                let size = (number as NSString).size(withAttributes: numberAttrs)
-                // Skip the label if the cell is too small to fit it — keeps
-                // a fine grid legible instead of a wall of overlapping text.
-                guard size.width <= rect.width && size.height <= rect.height else { continue }
-                let origin = CGPoint(
-                    x: rect.midX - size.width / 2,
-                    y: rect.midY - size.height / 2
-                )
-                (number as NSString).draw(at: origin, withAttributes: numberAttrs)
-            }
+            let number = "\(region.colorIndex + 1)"
+            let size = (number as NSString).size(withAttributes: numberAttrs)
+            guard size.width <= rect.width && size.height <= rect.height else { continue }
+            let origin = CGPoint(
+                x: CGFloat(region.centroid.x) * scaleX - size.width / 2,
+                y: CGFloat(region.centroid.y) * scaleY - size.height / 2
+            )
+            (number as NSString).draw(at: origin, withAttributes: numberAttrs)
         }
     }
 }

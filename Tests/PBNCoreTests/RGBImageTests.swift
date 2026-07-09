@@ -2,6 +2,7 @@ import XCTest
 @testable import PBNCore
 
 final class RGBImageTests: XCTestCase {
+    // Pixel mutation and lookup underpin every later image-processing stage.
     func testSubscriptRoundTrip() {
         var img = RGBImage(width: 2, height: 2, fill: RGBColor(r: 0, g: 0, b: 0))
         img[0, 0] = RGBColor(r: 1, g: 2, b: 3)
@@ -11,12 +12,14 @@ final class RGBImageTests: XCTestCase {
         XCTAssertEqual(img[0, 1], RGBColor(r: 0, g: 0, b: 0))
     }
 
+    // A no-op resize must preserve all source pixels exactly.
     func testScalingToSameSizeReturnsEqual() {
         let img = RGBImage(width: 3, height: 3, fill: RGBColor(r: 10, g: 20, b: 30))
         let scaled = img.nearestNeighborScaled(toWidth: 3, height: 3)
         XCTAssertEqual(scaled, img)
     }
 
+    // Nearest-neighbor downscaling must retain edge samples used by puzzle generation.
     func testScalingDownPreservesCorners() {
         let red = RGBColor(r: 255, g: 0, b: 0)
         let blue = RGBColor(r: 0, g: 0, b: 255)
@@ -31,6 +34,7 @@ final class RGBImageTests: XCTestCase {
         XCTAssertEqual(scaled[1, 1], blue)
     }
 
+    // Nearest-neighbor enlargement must not create colors absent from the source.
     func testScalingUpDoesNotInventColors() {
         let pixels: [RGBColor] = [
             RGBColor(r: 255, g: 0, b: 0),
@@ -42,6 +46,7 @@ final class RGBImageTests: XCTestCase {
         XCTAssertEqual(uniqueColors, Set(pixels))
     }
 
+    // Empty input must fail safely without indexing invalid source storage.
     func testScalingEmptySourceReturnsEmptyFill() {
         // Zero-pixel source. Must not crash (previously it indexed `pixels[-1]`).
         let empty = RGBImage(width: 0, height: 0, pixels: [])

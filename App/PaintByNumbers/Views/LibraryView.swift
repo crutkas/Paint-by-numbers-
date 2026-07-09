@@ -77,7 +77,11 @@ struct LibraryView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showCamera) {
             CameraPicker { image in
-                library.pendingImportImage = image
+                do {
+                    library.pendingImportImage = try ImageImportValidator.validate(image)
+                } catch {
+                    library.userFacingError = error.localizedDescription
+                }
                 showCamera = false
             }
         }
@@ -87,21 +91,23 @@ struct LibraryView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                if url.startAccessingSecurityScopedResource() {
-                    defer { url.stopAccessingSecurityScopedResource() }
-                    if let data = try? Data(contentsOf: url),
-                       let image = UIImage(data: data) {
-                        library.pendingImportImage = image
-                    }
-                }
+                Task { await library.handleImportedFile(url) }
+            } else if case .failure(let error) = result {
+                library.userFacingError = error.localizedDescription
             }
         }
         .onChange(of: photosPickerItem) { _, newItem in
             guard let newItem else { return }
             Task {
-                if let data = try? await newItem.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    library.pendingImportImage = image
+                do {
+                    guard let data = try await newItem.loadTransferable(type: Data.self) else {
+                        throw ImageImportValidator.ValidationError.invalidImage
+                    }
+                    library.pendingImportImage = try await Task.detached {
+                        try ImageImportValidator.image(from: data)
+                    }.value
+                } catch {
+                    library.userFacingError = error.localizedDescription
                 }
                 photosPickerItem = nil
             }
@@ -263,16 +269,18 @@ private struct PuzzleTile: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        let sourceURL = library.store.puzzleDirectory(id: puzzle.id)
-            .appendingPathComponent(puzzle.sourceImageFilename)
-        if let data = try? Data(contentsOf: sourceURL), let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        } else {
-            Image(systemName: "photo")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
+        Group {
+            if let image = library.thumbnailCache[puzzle.id] {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .task { await library.loadThumbnail(for: puzzle) }
+        .task { _ = await library.loadProgress(for: puzzle) }
     }
 }

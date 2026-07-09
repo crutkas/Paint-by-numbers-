@@ -11,6 +11,8 @@ struct PaletteStripView: View {
     let axis: Axis
 
     @AppStorage("pbn.removeDoneColors") private var removeDoneColors = false
+    @AppStorage("pbn.colorblindNumbers") private var bigNumbers = false
+    @ScaledMetric(relativeTo: .body) private var chipSize: CGFloat = 56
 
     var body: some View {
         ScrollView(axis == .horizontal ? .horizontal : .vertical, showsIndicators: false) {
@@ -62,7 +64,11 @@ struct PaletteStripView: View {
                     .fill(swiftUIColor)
                 VStack(spacing: 2) {
                     Text("\(index + 1)")
-                        .font(.system(.title3, design: .rounded, weight: .black))
+                        .font(.system(
+                            bigNumbers ? .largeTitle : .title3,
+                            design: .rounded,
+                            weight: .black
+                        ))
                         .foregroundStyle(numberColor)
                     if !isDone {
                         Text("\(remaining)")
@@ -75,7 +81,7 @@ struct PaletteStripView: View {
                     }
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: max(56, chipSize), height: max(56, chipSize))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 4)
@@ -84,6 +90,7 @@ struct PaletteStripView: View {
         }
         .accessibilityLabel("Color \(index + 1)")
         .accessibilityValue(isDone ? "Done" : "\(remaining) regions left")
+        .accessibilityHint("Select this color for painting.")
         .buttonStyle(.plain)
     }
 }

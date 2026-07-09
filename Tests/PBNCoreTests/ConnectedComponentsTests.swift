@@ -2,6 +2,7 @@ import XCTest
 @testable import PBNCore
 
 final class ConnectedComponentsTests: XCTestCase {
+    // Checkerboards maximize disconnected neighbors and guard the core four-connected labeling contract.
     func testFourConnectedRegionsOnCheckerboard() {
         // 2x2 checkerboard: every cell is its own region.
         let labels = [0, 1, 1, 0]
@@ -13,6 +14,7 @@ final class ConnectedComponentsTests: XCTestCase {
         }
     }
 
+    // Uniform artwork must remain one paintable region rather than being fragmented by traversal.
     func testSingleColorImageIsOneRegion() {
         let labels = [Int](repeating: 7, count: 5 * 4)
         let r = ConnectedComponents.label(colorIndices: labels, width: 5, height: 4)
@@ -23,6 +25,7 @@ final class ConnectedComponentsTests: XCTestCase {
         XCTAssertEqual(r.regions[0].bounds.height, 4)
     }
 
+    // Diagonal contact must not join regions because painting uses four-connected boundaries.
     func testDiagonalPixelsDoNotMerge() {
         // 0 1
         // 1 0  — with 4-connectivity, each pixel is its own region.
@@ -31,6 +34,7 @@ final class ConnectedComponentsTests: XCTestCase {
         XCTAssertEqual(r.regions.count, 4)
     }
 
+    // Stable centroids keep number labels anchored predictably in simple regions.
     func testCentroidOfUniformRegion() {
         let labels = [Int](repeating: 0, count: 4 * 4)
         let r = ConnectedComponents.label(colorIndices: labels, width: 4, height: 4)
@@ -40,6 +44,7 @@ final class ConnectedComponentsTests: XCTestCase {
         XCTAssertEqual(r.regions[0].centroid.y, 1)
     }
 
+    // Tiny isolated speckles must merge so children are not asked to paint impractical targets.
     func testMergeSmallRegionsAbsorbsStrayPixel() {
         // 3x3: a sea of 0s with one stray 1 in the middle.
         // 0 0 0
@@ -60,6 +65,7 @@ final class ConnectedComponentsTests: XCTestCase {
         XCTAssertTrue(merged.regionIds.allSatisfy { $0 == 0 })
     }
 
+    // Regions already meeting the minimum must retain their boundaries and identities.
     func testMergeSmallRegionsLeavesLargeRegionsAlone() {
         // A 4x1 strip: left half color 0, right half color 1.
         let labels = [0, 0, 1, 1]
@@ -71,6 +77,7 @@ final class ConnectedComponentsTests: XCTestCase {
         XCTAssertEqual(merged.regions.count, 2)
     }
 
+    // Every persisted map ID must resolve to metadata or rendering and hit-testing can fail.
     func testRegionIdsStayInsideRegionList() {
         let labels = [0, 1, 0, 1, 0, 1, 0, 1]
         let r = ConnectedComponents.label(colorIndices: labels, width: 2, height: 4)
@@ -78,5 +85,25 @@ final class ConnectedComponentsTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(id, 0)
             XCTAssertLessThan(id, r.regions.count)
         }
+    }
+
+    // Regression coverage for chained speckles: adjacency and aggregate sizes
+    // must be recalculated after each merge rather than using stale neighbors.
+    func testMergeSmallRegionsRecalculatesChainedMerges() {
+        let input = ConnectedComponents.label(colorIndices: [0, 1, 2, 3, 3, 3], width: 6, height: 1)
+        let result = ConnectedComponents.mergeSmallRegions(input, width: 6, height: 1, minPixelCount: 3)
+
+        XCTAssertTrue(result.regions.allSatisfy { $0.pixelCount >= 3 })
+        XCTAssertEqual(result.regionIds.count, 6)
+    }
+
+    // Equal shared boundaries are common in grid-like art; deterministic tie
+    // breaking keeps generated puzzles stable across runs and platforms.
+    func testMergeSmallRegionsBreaksBoundaryTiesDeterministically() {
+        let input = ConnectedComponents.label(colorIndices: [0, 1, 2], width: 3, height: 1)
+        let first = ConnectedComponents.mergeSmallRegions(input, width: 3, height: 1, minPixelCount: 2)
+        let second = ConnectedComponents.mergeSmallRegions(input, width: 3, height: 1, minPixelCount: 2)
+
+        XCTAssertEqual(first, second)
     }
 }

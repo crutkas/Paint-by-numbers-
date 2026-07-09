@@ -17,6 +17,7 @@ struct NewPuzzleView: View {
     @State private var title: String = NewPuzzleView.defaultTitle()
     @State private var gridSize: Double = 24
     @State private var isGenerating = false
+    @State private var generationFailed = false
     /// Cached RGB representation of the source image so the live preview
     /// doesn't re-decode the UIImage on every slider tick.
     @State private var baseRGB: RGBImage?
@@ -76,6 +77,12 @@ struct NewPuzzleView: View {
             .navigationTitle("New Puzzle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .alert("Puzzle not created", isPresented: $generationFailed) {
+                Button("Try Again") { Task { await generate() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(library.userFacingError ?? "Please try again.")
+            }
             .task {
                 if baseRGB == nil {
                     baseRGB = sourceImage.rgbImage()
@@ -242,6 +249,8 @@ struct NewPuzzleView: View {
                 path.removeLast()
             }
             path.append(meta.id)
+        } else {
+            generationFailed = true
         }
     }
 }

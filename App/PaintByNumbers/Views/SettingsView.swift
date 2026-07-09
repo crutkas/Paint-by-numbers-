@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Kid-friendly settings. Intentionally tiny: sound, haptics, color-blind
-/// numbering. A production build would add a parental gate and iCloud toggle.
+/// numbering.
 struct SettingsView: View {
     @AppStorage("pbn.sound") private var soundOn = true
     @AppStorage("pbn.haptics") private var hapticsOn = true
@@ -23,7 +23,7 @@ struct SettingsView: View {
                     Toggle("Color is removed when done", isOn: $removeDoneColors)
                 }
                 Section("Accessibility") {
-                    Toggle("Big numbers on color chips", isOn: $colorblindNumbers)
+                    Toggle("Large numbers on canvas and color chips", isOn: $colorblindNumbers)
                 }
                 Section("Open-source") {
                     Link("View on GitHub",

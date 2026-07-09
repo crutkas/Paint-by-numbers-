@@ -13,6 +13,7 @@ final class KMeansQuantizerTests: XCTestCase {
         return RGBImage(width: 10, height: 10, pixels: pixels)
     }
 
+    // Clearly separated source clusters must become distinct numbered paint colors.
     func testQuantizeTwoClusterImageYieldsExactlyTwoColors() {
         let img = makeStripedImage()
         let (palette, labels) = KMeansQuantizer.quantize(image: img, k: 2)
@@ -27,6 +28,7 @@ final class KMeansQuantizerTests: XCTestCase {
         XCTAssertNotEqual(leftLabels, rightLabels)
     }
 
+    // Seeded quantization must reproduce the same puzzle for identical inputs.
     func testQuantizeIsDeterministicForSameSeed() {
         let img = makeStripedImage()
         let a = KMeansQuantizer.quantize(image: img, k: 2, seed: 42)
@@ -35,6 +37,7 @@ final class KMeansQuantizerTests: XCTestCase {
         XCTAssertEqual(a.labels, b.labels)
     }
 
+    // Palette ordering by luminance keeps color numbering stable and predictable.
     func testPaletteIsSortedByLuminance() {
         // Three distinct colors at very different luminance levels.
         var pixels: [RGBColor] = []
@@ -52,6 +55,7 @@ final class KMeansQuantizerTests: XCTestCase {
         }
     }
 
+    // Tiny images must not crash when difficulty requests more colors than pixels.
     func testQuantizeHandlesKGreaterThanPixels() {
         let img = RGBImage(width: 1, height: 1, pixels: [RGBColor(r: 100, g: 100, b: 100)])
         let (palette, labels) = KMeansQuantizer.quantize(image: img, k: 10)
@@ -59,6 +63,7 @@ final class KMeansQuantizerTests: XCTestCase {
         XCTAssertEqual(labels, [0])
     }
 
+    // Empty inputs must produce an empty safe result rather than invalid cluster access.
     func testQuantizeEmptyImage() {
         let img = RGBImage(width: 0, height: 0, pixels: [])
         let (palette, labels) = KMeansQuantizer.quantize(image: img, k: 5)

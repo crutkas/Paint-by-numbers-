@@ -13,6 +13,7 @@ struct PlayView: View {
     @State private var progress: PuzzleProgress
     @State private var selectedColorIndex: Int = 0
     @State private var showCompletion = false
+    @State private var regionIds: [Int] = []
 
     init(puzzle: PuzzleMetadata) {
         self.puzzle = puzzle
@@ -45,8 +46,9 @@ struct PlayView: View {
                 .frame(width: 120)
             }
         }
-        .onAppear {
-            progress = library.progress(for: puzzle.id)
+        .task {
+            progress = await library.loadProgress(for: puzzle)
+            regionIds = await library.loadRegionIds(for: puzzle) ?? []
         }
         .onChange(of: progress) { _, newValue in
             library.save(progress: newValue)
@@ -55,7 +57,7 @@ struct PlayView: View {
             }
         }
         .sheet(isPresented: $showCompletion) {
-            CompletionView(puzzle: puzzle, progress: progress)
+            CompletionView(puzzle: puzzle, progress: progress, regionIds: regionIds)
                 .environmentObject(library)
         }
     }
@@ -64,7 +66,8 @@ struct PlayView: View {
         PuzzleCanvasView(
             puzzle: puzzle,
             progress: $progress,
-            selectedColorIndex: $selectedColorIndex
+            selectedColorIndex: $selectedColorIndex,
+            regionIds: regionIds
         )
         .background(Color(.systemBackground))
     }

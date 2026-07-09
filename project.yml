@@ -1,6 +1,6 @@
 name: PaintByNumbers
 options:
-  bundleIdPrefix: com.example.paintbynumbers
+  bundleIdPrefix: com.crutkas.paintbynumbers
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -48,7 +48,7 @@ targets:
           Paint by Numbers uses the camera so kids can snap a picture and turn it
           into a paint-by-numbers puzzle.
         CFBundleURLTypes:
-          - CFBundleURLName: com.example.paintbynumbers.import
+          - CFBundleURLName: com.crutkas.paintbynumbers.import
             CFBundleURLSchemes:
               - paintbynumbers
         CFBundleDocumentTypes:
@@ -61,10 +61,10 @@ targets:
       path: App/PaintByNumbers/PaintByNumbers.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.example.paintbynumbers
+          - group.com.crutkas.paintbynumbers
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.paintbynumbers
+        PRODUCT_BUNDLE_IDENTIFIER: com.crutkas.paintbynumbers
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - package: PBNCore
@@ -92,14 +92,26 @@ targets:
       path: ShareExtension/PBNShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.example.paintbynumbers
+          - group.com.crutkas.paintbynumbers
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.paintbynumbers.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.crutkas.paintbynumbers.ShareExtension
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - package: PBNCore
         product: PBNCore
+
+  PaintByNumbersTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AppTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crutkas.paintbynumbers.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: PaintByNumbers
 
 schemes:
   PaintByNumbers:
@@ -111,6 +123,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - PaintByNumbersTests
     profile:
       config: Release
     archive:

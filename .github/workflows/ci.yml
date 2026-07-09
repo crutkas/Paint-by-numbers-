@@ -85,5 +85,35 @@ jobs:
             CODE_SIGN_IDENTITY= \
             build
 
+      - name: Run iOS app tests
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PaintByNumbers.xcodeproj \
+            -scheme PaintByNumbers \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+          xcodebuild \
+            -project PaintByNumbers.xcodeproj \
+            -scheme PaintByNumbers \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Validate Release configuration
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PaintByNumbers.xcodeproj \
+            -scheme PaintByNumbers \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
       - name: Run PBNCore tests on macOS
         run: swift test --parallel
