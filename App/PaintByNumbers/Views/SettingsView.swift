@@ -23,7 +23,7 @@ struct SettingsView: View {
                     Toggle("Color is removed when done", isOn: $removeDoneColors)
                 }
                 Section("Accessibility") {
-                    Toggle("Big numbers", isOn: $colorblindNumbers)
+                    Toggle("Large numbers on canvas and color chips", isOn: $colorblindNumbers)
                 }
                 Section("Open-source") {
                     Link("View on GitHub",

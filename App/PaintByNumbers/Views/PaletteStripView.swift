@@ -90,7 +90,7 @@ struct PaletteStripView: View {
         }
         .accessibilityLabel("Color \(index + 1)")
         .accessibilityValue(isDone ? "Done" : "\(remaining) regions left")
-        .accessibilityHint("Selects this color for painting.")
+        .accessibilityHint("Select this color for painting.")
         .buttonStyle(.plain)
     }
 }
